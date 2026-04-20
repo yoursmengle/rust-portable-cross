@@ -439,12 +439,12 @@ function Invoke-RustToolkitSetup {
         -Label "rustup-init.exe"
 
     if (-not (Test-Path -LiteralPath $rustupCmd)) {
-        Write-Step "Installing stable-x86_64-pc-windows-msvc into repository-local homes"
+        Write-Step "Installing stable-x86_64-pc-windows-gnu into repository-local homes"
         Invoke-Native -FilePath $rustupExe -Arguments @(
             "-y",
             "--profile", "minimal",
             "--no-modify-path",
-            "--default-toolchain", "stable-x86_64-pc-windows-msvc"
+            "--default-toolchain", "stable-x86_64-pc-windows-gnu"
         )
     }
     else {
@@ -455,12 +455,15 @@ function Invoke-RustToolkitSetup {
         throw "rustup.exe was not installed into $cargoBin"
     }
 
-    Write-Step "Ensuring stable-x86_64-pc-windows-msvc is installed"
+    Write-Step "Ensuring stable-x86_64-pc-windows-gnu is installed"
     Invoke-Native -FilePath $rustupCmd -Arguments @(
         "toolchain",
         "install",
-        "stable-x86_64-pc-windows-msvc"
+        "stable-x86_64-pc-windows-gnu"
     )
+
+    # Pin the active toolchain for all subsequent rustup-proxy calls in this script.
+    $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
 
     Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
 
@@ -539,39 +542,67 @@ function Invoke-RustToolkitSetup {
     }
 
     Write-Step "Generating Zig cross-compiler wrappers"
-    $wrapperDefinitions = @(
-        @{
-            Name = "arm-linux-musleabihf-gcc.cmd"
-            Target = "arm-linux-musleabihf"
-        },
-        @{
-            Name = "aarch64-linux-musl-gcc.cmd"
-            Target = "aarch64-linux-musl"
-        }
+
+    # Linux cross-compilation wrappers: simple pass-through to zig cc.
+    $crossWrapperDefinitions = @(
+        @{ Name = "arm-linux-musleabihf-gcc.cmd"; Target = "arm-linux-musleabihf" },
+        @{ Name = "aarch64-linux-musl-gcc.cmd";   Target = "aarch64-linux-musl"   }
     )
 
-    foreach ($wrapper in $wrapperDefinitions) {
+    foreach ($wrapper in $crossWrapperDefinitions) {
         $wrapperPath = Join-Path $wrappersRoot $wrapper.Name
         $wrapperBody = @(
             "@echo off",
-            "`"$zigExe`" cc -target $($wrapper.Target) %*"
+            "`"%~dp0..\zig\zig.exe`" cc -target $($wrapper.Target) %*"
         ) -join "`r`n"
         Set-Content -LiteralPath $wrapperPath -Value $wrapperBody -Encoding ASCII
     }
 
+    # Windows GNU host wrapper: delegates to a PowerShell helper that filters
+    # linker flags unsupported by zig's LLD (e.g. --disable-auto-image-base).
+    $winPs1Path = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.ps1"
+    $winPs1Body = @(
+        "# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering flags",
+        "# that rustc injects for x86_64-pc-windows-gnu but zig's LLD does not support.",
+        "`$unsupported = @(",
+        "    '-Wl,--disable-auto-image-base'",
+        ")",
+        "",
+        "`$filteredArgs = `$args | Where-Object { `$_ -notin `$unsupported }",
+        "",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu @filteredArgs",
+        "exit `$LASTEXITCODE"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $winPs1Path -Value $winPs1Body -Encoding ASCII
+
+    $winCmdPath = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.cmd"
+    $winCmdBody = @(
+        "@echo off",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0x86_64-w64-mingw32-gcc.ps1`" %*"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $winCmdPath -Value $winCmdBody -Encoding ASCII
+
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()
     $rustcVersion = (@(Get-NativeOutput -FilePath $rustcExe -Arguments @("-V")))[0].ToString().Trim()
+
+    # `rustup target list --installed` only shows additional (cross) targets; the host triple is
+    # always available but never appears in that list.  Check cross targets separately.
     $installedTargets = @(Get-NativeOutput -FilePath $rustupCmd -Arguments @("target", "list", "--installed"))
 
     foreach ($requiredTarget in @(
-        "x86_64-pc-windows-msvc",
         "armv7-unknown-linux-musleabihf",
         "aarch64-unknown-linux-musl"
     )) {
         if ($installedTargets -notcontains $requiredTarget) {
             throw "Missing required installed target: $requiredTarget"
         }
+    }
+
+    # Verify the active toolchain is the GNU host toolchain (no MSVC link.exe dependency).
+    $rustcHostLine = & $rustcExe -vV 2>&1 | Where-Object { $_ -match "^host:" }
+    if ($rustcHostLine -notmatch "x86_64-pc-windows-gnu") {
+        throw "Expected host toolchain x86_64-pc-windows-gnu but rustc reports: $rustcHostLine"
     }
 
     Write-Host ""
