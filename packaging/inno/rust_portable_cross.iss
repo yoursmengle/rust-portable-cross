@@ -56,12 +56,152 @@ Name: "{group}\Uninstall Rust Portable Cross"; Filename: "{uninstallexe}"
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; Flags: runhidden waituntilterminated
 
 [Code]
+const
+  EnvKeyMachine = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+  EnvKeyUser = 'Environment';
+  WM_SETTINGCHANGE = $1A;
+  HWND_BROADCAST = $FFFF;
+  SMTO_ABORTIFHUNG = $0002;
+
+function SendMessageTimeout(hWnd: LongInt; Msg: LongInt; wParam: LongInt;
+  lParam: AnsiString; fuFlags: LongInt; uTimeout: LongInt;
+  out lpdwResult: LongInt): LongInt;
+  external 'SendMessageTimeoutA@user32.dll stdcall';
+
 function GetDefaultInstallDir(Param: String): String;
 begin
-  if IsAdminInstallMode then
-    Result := ExpandConstant('{autopf}\RustPortableCross')
+  if DirExists('D:\') then
+    Result := 'D:\rust-portable-cross'
   else
-    Result := ExpandConstant('{localappdata}\Programs\RustPortableCross');
+    Result := 'C:\rust-portable-cross';
+end;
+
+function GetEnvRootKey(): Integer;
+begin
+  if IsAdminInstallMode then
+    Result := HKEY_LOCAL_MACHINE
+  else
+    Result := HKEY_CURRENT_USER;
+end;
+
+function GetEnvSubKey(): String;
+begin
+  if IsAdminInstallMode then
+    Result := EnvKeyMachine
+  else
+    Result := EnvKeyUser;
+end;
+
+function PathContainsEntry(const PathValue, Entry: String): Boolean;
+var
+  Lower, LowerEntry: String;
+begin
+  Lower := ';' + Lowercase(PathValue) + ';';
+  StringChangeEx(Lower, '/', '\', True);
+  LowerEntry := ';' + Lowercase(Entry) + ';';
+  StringChangeEx(LowerEntry, '/', '\', True);
+  Result := Pos(LowerEntry, Lower) > 0;
+end;
+
+procedure BroadcastEnvChange();
+var
+  ResultCode: LongInt;
+begin
+  SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment',
+    SMTO_ABORTIFHUNG, 5000, ResultCode);
+end;
+
+procedure AddScriptsToPath();
+var
+  RootKey: Integer;
+  SubKey, NewEntry, Existing, Updated: String;
+begin
+  RootKey := GetEnvRootKey();
+  SubKey := GetEnvSubKey();
+  NewEntry := ExpandConstant('{app}\scripts');
+
+  if not RegQueryStringValue(RootKey, SubKey, 'Path', Existing) then
+    Existing := '';
+
+  if PathContainsEntry(Existing, NewEntry) then
+    Exit;
+
+  if (Length(Existing) > 0) and (Existing[Length(Existing)] <> ';') then
+    Updated := Existing + ';' + NewEntry
+  else
+    Updated := Existing + NewEntry;
+
+  if IsAdminInstallMode then
+    RegWriteExpandStringValue(RootKey, SubKey, 'Path', Updated)
+  else
+    RegWriteStringValue(RootKey, SubKey, 'Path', Updated);
+
+  BroadcastEnvChange();
+end;
+
+procedure RemoveScriptsFromPath();
+var
+  RootKey: Integer;
+  SubKey, Entry, Existing, Rebuilt, Token: String;
+  Parts: TArrayOfString;
+  I, Count: Integer;
+begin
+  RootKey := GetEnvRootKey();
+  SubKey := GetEnvSubKey();
+  Entry := ExpandConstant('{app}\scripts');
+
+  if not RegQueryStringValue(RootKey, SubKey, 'Path', Existing) then
+    Exit;
+
+  Count := 0;
+  SetArrayLength(Parts, 0);
+  while Length(Existing) > 0 do
+  begin
+    if Pos(';', Existing) > 0 then
+    begin
+      Token := Copy(Existing, 1, Pos(';', Existing) - 1);
+      Existing := Copy(Existing, Pos(';', Existing) + 1, Length(Existing));
+    end
+    else
+    begin
+      Token := Existing;
+      Existing := '';
+    end;
+
+    if (Length(Token) > 0) and (CompareText(Token, Entry) <> 0) then
+    begin
+      SetArrayLength(Parts, Count + 1);
+      Parts[Count] := Token;
+      Count := Count + 1;
+    end;
+  end;
+
+  Rebuilt := '';
+  for I := 0 to Count - 1 do
+  begin
+    if I > 0 then
+      Rebuilt := Rebuilt + ';';
+    Rebuilt := Rebuilt + Parts[I];
+  end;
+
+  if IsAdminInstallMode then
+    RegWriteExpandStringValue(RootKey, SubKey, 'Path', Rebuilt)
+  else
+    RegWriteStringValue(RootKey, SubKey, 'Path', Rebuilt);
+
+  BroadcastEnvChange();
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    AddScriptsToPath();
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RemoveScriptsFromPath();
 end;
 
 function GetInstallScope(Param: String): String;
