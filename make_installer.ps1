@@ -54,8 +54,9 @@ if (-not (Test-Path -LiteralPath $IssFile)) {
 
 if (-not $SkipStaging) {
     Write-Step "Preparing offline release staging"
+    $global:LASTEXITCODE = 0
     & $PrepareScript -Version $Version
-    if ($LASTEXITCODE -ne 0) {
+    if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
         throw "prepare_offline_release.ps1 failed with exit code $LASTEXITCODE"
     }
 } else {
@@ -73,8 +74,9 @@ if (-not (Test-Path -LiteralPath $InstallerDir)) {
 }
 
 Write-Step "Compiling installer from $IssFile"
+$global:LASTEXITCODE = 0
 & $Iscc "/DMyAppVersion=$Version" $IssFile
-if ($LASTEXITCODE -ne 0) {
+if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
     throw "ISCC.exe failed with exit code $LASTEXITCODE"
 }
 

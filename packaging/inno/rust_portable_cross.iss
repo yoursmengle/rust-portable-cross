@@ -21,7 +21,8 @@ SolidCompression=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
+DisableDirPage=yes
 UsePreviousGroup=yes
 UsePreviousSetupType=yes
 
@@ -59,9 +60,9 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 const
   EnvKeyMachine = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
   EnvKeyUser = 'Environment';
-  WM_SETTINGCHANGE = $1A;
-  HWND_BROADCAST = $FFFF;
-  SMTO_ABORTIFHUNG = $0002;
+  WM_SETTINGCHANGE_MSG = $1A;
+  HWND_BROADCAST_ALL = $FFFF;
+  SMTO_ABORT_IF_HUNG = $0002;
 
 function SendMessageTimeout(hWnd: LongInt; Msg: LongInt; wParam: LongInt;
   lParam: AnsiString; fuFlags: LongInt; uTimeout: LongInt;
@@ -107,8 +108,8 @@ procedure BroadcastEnvChange();
 var
   ResultCode: LongInt;
 begin
-  SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment',
-    SMTO_ABORTIFHUNG, 5000, ResultCode);
+  SendMessageTimeout(HWND_BROADCAST_ALL, WM_SETTINGCHANGE_MSG, 0, 'Environment',
+    SMTO_ABORT_IF_HUNG, 5000, ResultCode);
 end;
 
 procedure AddScriptsToPath();
