@@ -19,3 +19,4 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/*.md
 .hecstudio-ready
 .hec_ai_studio-ready
+continue.txt
