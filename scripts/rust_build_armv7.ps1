@@ -18,6 +18,11 @@ if (-not (Test-Path -LiteralPath $configSource)) {
     throw "Missing toolkit Cargo config at $configSource"
 }
 
+$wrapperPath = Join-Path $toolkitRoot "tools\wrappers\arm-linux-musleabihf-gcc.cmd"
+if (-not (Test-Path -LiteralPath $wrapperPath)) {
+    throw "ARMv7 support is not installed. Missing wrapper: $wrapperPath"
+}
+
 New-Item -ItemType Directory -Path $cargoDir -Force | Out-Null
 Copy-Item -LiteralPath $configSource -Destination $configTarget -Force
 

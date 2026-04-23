@@ -2,9 +2,13 @@
 /tools/*
 !/tools/.gitkeep
 /sample/target/
+dist/
 docs/
 !docs/
 docs/*
+!docs/customer/
+docs/customer/*
+!docs/customer/*.md
 !docs/superpowers/
 docs/superpowers/*
 !docs/superpowers/plans/

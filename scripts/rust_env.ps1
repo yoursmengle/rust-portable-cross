@@ -18,9 +18,7 @@ $requiredPaths = @(
     $cargoExe,
     $rustcExe,
     $rustupExe,
-    $zigExe,
-    (Join-Path $wrappersRoot "arm-linux-musleabihf-gcc.cmd"),
-    (Join-Path $wrappersRoot "aarch64-linux-musl-gcc.cmd")
+    $zigExe
 )
 
 foreach ($path in $requiredPaths) {
@@ -38,9 +36,29 @@ $env:RUSTUP_HOME = $rustupHome
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
-$env:CC_armv7_unknown_linux_musleabihf = "arm-linux-musleabihf-gcc.cmd"
-$env:CC_aarch64_unknown_linux_musl = "aarch64-linux-musl-gcc.cmd"
 $env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$env:PATH"
+
+$optionalWrapperMappings = @(
+    @{
+        WrapperPath = Join-Path $wrappersRoot "arm-linux-musleabihf-gcc.cmd"
+        EnvVar = "CC_armv7_unknown_linux_musleabihf"
+        WrapperName = "arm-linux-musleabihf-gcc.cmd"
+    },
+    @{
+        WrapperPath = Join-Path $wrappersRoot "aarch64-linux-musl-gcc.cmd"
+        EnvVar = "CC_aarch64_unknown_linux_musl"
+        WrapperName = "aarch64-linux-musl-gcc.cmd"
+    }
+)
+
+foreach ($mapping in $optionalWrapperMappings) {
+    if (Test-Path -LiteralPath $mapping.WrapperPath) {
+        Set-Item -Path "Env:$($mapping.EnvVar)" -Value $mapping.WrapperName
+    }
+    elseif (Test-Path -LiteralPath "Env:$($mapping.EnvVar)") {
+        Remove-Item -LiteralPath "Env:$($mapping.EnvVar)"
+    }
+}
 
 Write-Host "RUST_PORTABLE_CROSS_ROOT=$env:RUST_PORTABLE_CROSS_ROOT"
 Write-Host "CARGO_HOME=$env:CARGO_HOME"

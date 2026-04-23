@@ -8,7 +8,7 @@ Supported cross-compilation targets:
 |---|---|
 | `armv7-unknown-linux-musleabihf` | ARMv7 Linux (musl libc, hard-float) |
 | `aarch64-unknown-linux-musl` | AArch64 / ARM64 Linux (musl libc) |
-| `x86_64-pc-windows-msvc` | Windows x64 (host, native) |
+| `x86_64-pc-windows-gnu` | Windows x64 (host, native) |
 
 Cross-compilation is powered by [Zig](https://ziglang.org/) acting as the C linker, eliminating the need for a separate Linux cross-toolchain.
 
@@ -24,7 +24,7 @@ Cross-compilation is powered by [Zig](https://ziglang.org/) acting as the C link
 
 ## Quick Start
 
-### 1. First-time setup
+### 1. Internal first-time setup
 
 Run once from the repository root to download and install all toolchain components:
 
@@ -33,7 +33,7 @@ Run once from the repository root to download and install all toolchain componen
 ```
 
 This will:
-- Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-msvc` toolchain into `tools/`
+- Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-gnu` toolchain into `tools/`
 - Add the `armv7-unknown-linux-musleabihf` and `aarch64-unknown-linux-musl` targets
 - Download and extract Zig 0.13.0 into `tools/zig/`
 - Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`
@@ -43,6 +43,14 @@ Use `-Force` to reset cached registry/package data and re-run setup:
 ```powershell
 .\scripts\rust_setup.ps1 -Force
 ```
+
+### Customer offline installer flow
+
+Customer delivery should use the offline installer generated from the staged release payload, not `rust_setup.ps1`.
+
+- installer source: `packaging/inno/rust_portable_cross.iss`
+- staging script: `scripts/prepare_offline_release.ps1`
+- customer guide: `docs/customer/README-offline.md`
 
 ### 2. Activate the environment
 
@@ -127,7 +135,7 @@ Must be **dot-sourced** so that environment variables are set in the calling ses
 
 Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, and updates `PATH`.
 
-### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1`
+### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1` / `rust_build_x64_win.ps1`
 
 Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`.
 

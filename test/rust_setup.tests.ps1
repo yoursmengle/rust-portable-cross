@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $env:RUST_PORTABLE_CROSS_SKIP_MAIN = "1"
-. "$PSScriptRoot\rust_setup.ps1"
+. "$PSScriptRoot\..\scripts\rust_setup.ps1"
 
 function Assert-Equal {
     param(
@@ -40,8 +40,9 @@ function Assert-True {
 
 $resolvedPaths = Get-RustToolkitPaths
 Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($resolvedPaths.ScriptPath)) -Message "script path should resolve when the setup script is dot-sourced"
-Assert-Equal -Actual $resolvedPaths.ScriptRoot -Expected $PSScriptRoot -Message "script root should point at the scripts directory"
-Assert-Equal -Actual $resolvedPaths.ToolkitRoot -Expected (Split-Path -Parent $PSScriptRoot) -Message "toolkit root should be the parent of the scripts directory"
+$expectedScriptRoot = Join-Path $PSScriptRoot "..\scripts"
+Assert-Equal -Actual $resolvedPaths.ScriptRoot -Expected (Resolve-Path -LiteralPath $expectedScriptRoot).Path -Message "script root should point at the scripts directory"
+Assert-Equal -Actual $resolvedPaths.ToolkitRoot -Expected (Split-Path -Parent (Resolve-Path -LiteralPath $expectedScriptRoot).Path) -Message "toolkit root should be the parent of the scripts directory"
 
 $rustupUris = @(Get-DownloadUriList `
     -PrimaryUri "" `
