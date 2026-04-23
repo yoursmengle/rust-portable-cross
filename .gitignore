@@ -3,4 +3,11 @@
 !/tools/.gitkeep
 /sample/target/
 docs/
+!docs/
+docs/*
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+!docs/superpowers/specs/*.md
 .hecstudio-ready
