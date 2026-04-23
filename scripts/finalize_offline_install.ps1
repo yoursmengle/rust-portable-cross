@@ -82,7 +82,7 @@ function Get-InstallLayout {
     $layoutPath = Join-Path $InstallRoot "install-layout.json"
     Assert-PathExists -Path $layoutPath -Message "Offline install layout metadata is missing."
 
-    return Get-Content -LiteralPath $layoutPath -Raw | ConvertFrom-Json -Depth 6
+    return Get-Content -LiteralPath $layoutPath -Raw | ConvertFrom-Json
 }
 
 function Set-RustupSettings {
