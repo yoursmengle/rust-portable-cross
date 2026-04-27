@@ -1,4 +1,4 @@
-#define MyAppName "Rust Portable Cross"
+#define MyAppName "Rust 便携交叉编译工具包"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "Rust Portable Cross"
 #define MyAppExeName "Activate Rust Portable Cross.ps1"
@@ -25,16 +25,20 @@ UsePreviousAppDir=no
 DisableDirPage=yes
 UsePreviousGroup=yes
 UsePreviousSetupType=yes
+ShowLanguageDialog=no
+
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Types]
-Name: "default"; Description: "Default installation"
-Name: "custom"; Description: "Custom installation"; Flags: iscustom
+Name: "default"; Description: "默认安装"
+Name: "custom"; Description: "自定义安装"; Flags: iscustom
 
 [Components]
-Name: "core"; Description: "Core toolkit files"; Types: default custom; Flags: fixed
-Name: "armv7"; Description: "ARMv7 Linux support"; Types: default custom
-Name: "aarch64"; Description: "AArch64 Linux support"; Types: custom
-Name: "x64_win"; Description: "Windows x64 support"; Types: custom
+Name: "core"; Description: "核心工具包文件"; Types: default custom; Flags: fixed
+Name: "armv7"; Description: "ARMv7 Linux 交叉编译支持"; Types: default custom
+Name: "aarch64"; Description: "AArch64 Linux 交叉编译支持"; Types: custom
+Name: "x64_win"; Description: "Windows x64 原生编译支持"; Types: custom
 
 [Dirs]
 Name: "{app}\tools\cargo-home\registry"
@@ -49,9 +53,9 @@ Source: "{#StageRoot}\targets\aarch64\*"; DestDir: "{app}"; Components: aarch64;
 Source: "{#StageRoot}\targets\x64_win\*"; DestDir: "{app}"; Components: x64_win; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Activate Rust Portable Cross (PowerShell)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -File ""{app}\Activate Rust Portable Cross.ps1"""
-Name: "{group}\README"; Filename: "{app}\docs\README-offline.md"
-Name: "{group}\Uninstall Rust Portable Cross"; Filename: "{uninstallexe}"
+Name: "{group}\激活 Rust 便携交叉编译环境 (PowerShell)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -File ""{app}\Activate Rust Portable Cross.ps1"""
+Name: "{group}\使用说明"; Filename: "{app}\docs\README-offline.md"
+Name: "{group}\卸载 Rust 便携交叉编译工具包"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; Flags: runhidden waituntilterminated
