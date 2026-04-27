@@ -543,19 +543,46 @@ function Invoke-RustToolkitSetup {
 
     Write-Step "Generating Zig cross-compiler wrappers"
 
-    # Linux cross-compilation wrappers: simple pass-through to zig cc.
+    # Linux cross-compilation wrappers: a `.cmd` shim delegates to a `.ps1`
+    # helper that strips any caller-supplied `--target=`/`-target` flags
+    # (cc-rs injects the 4-component Rust triple, e.g.
+    # `--target=aarch64-unknown-linux-musl`, which zig's strict target
+    # parser rejects with UnknownOperatingSystem/UnknownArchitecture) and
+    # forces the canonical Zig 3-tuple.
     $crossWrapperDefinitions = @(
-        @{ Name = "arm-linux-musleabihf-gcc.cmd"; Target = "arm-linux-musleabihf" },
-        @{ Name = "aarch64-linux-musl-gcc.cmd";   Target = "aarch64-linux-musl"   }
+        @{ BaseName = "arm-linux-musleabihf-gcc"; Target = "arm-linux-musleabihf" },
+        @{ BaseName = "aarch64-linux-musl-gcc";   Target = "aarch64-linux-musl"   }
     )
 
     foreach ($wrapper in $crossWrapperDefinitions) {
-        $wrapperPath = Join-Path $wrappersRoot $wrapper.Name
-        $wrapperBody = @(
-            "@echo off",
-            "`"%~dp0..\zig\zig.exe`" cc -target $($wrapper.Target) %*"
+        $ps1Path = Join-Path $wrappersRoot ($wrapper.BaseName + ".ps1")
+        $ps1Body = @(
+            "# Wrapper: forwards args to ``zig cc -target $($wrapper.Target)``.",
+            "# cc-rs (and some build.rs scripts) inject ``--target=<rust-triple>`` which zig's",
+            "# strict target parser rejects. Drop any caller-supplied -target/--target= flags",
+            "# and force the canonical Zig 3-tuple ourselves.",
+            "`$zigTarget = '$($wrapper.Target)'",
+            "",
+            "`$filtered = New-Object 'System.Collections.Generic.List[string]'",
+            "`$skipNext = `$false",
+            "foreach (`$a in `$args) {",
+            "    if (`$skipNext) { `$skipNext = `$false; continue }",
+            "    if (`$a -is [string] -and `$a.StartsWith('--target=')) { continue }",
+            "    if (`$a -eq '-target' -or `$a -eq '--target') { `$skipNext = `$true; continue }",
+            "    `$filtered.Add([string]`$a)",
+            "}",
+            "",
+            "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target `$zigTarget @filtered",
+            "exit `$LASTEXITCODE"
         ) -join "`r`n"
-        Set-Content -LiteralPath $wrapperPath -Value $wrapperBody -Encoding ASCII
+        Set-Content -LiteralPath $ps1Path -Value $ps1Body -Encoding ASCII
+
+        $cmdPath = Join-Path $wrappersRoot ($wrapper.BaseName + ".cmd")
+        $cmdBody = @(
+            "@echo off",
+            "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($wrapper.BaseName).ps1`" %*"
+        ) -join "`r`n"
+        Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
     }
 
     # Windows GNU host wrapper: delegates to a PowerShell helper that filters

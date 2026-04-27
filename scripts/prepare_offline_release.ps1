@@ -22,6 +22,7 @@ $script:TargetDefinitions = [ordered]@{
         BuildScripts = @("scripts/rust_build_armv7.ps1")
         FilePaths = @(
             "tools/wrappers/arm-linux-musleabihf-gcc.cmd",
+            "tools/wrappers/arm-linux-musleabihf-gcc.ps1",
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/armv7-unknown-linux-musleabihf",
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf"
         )
@@ -32,6 +33,7 @@ $script:TargetDefinitions = [ordered]@{
         BuildScripts = @("scripts/rust_build_aarch64.ps1")
         FilePaths = @(
             "tools/wrappers/aarch64-linux-musl-gcc.cmd",
+            "tools/wrappers/aarch64-linux-musl-gcc.ps1",
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/aarch64-unknown-linux-musl",
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
         )
