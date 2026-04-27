@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version,
     [string]$IsccPath,
     [switch]$SkipStaging
 )
@@ -17,6 +17,55 @@ $PrepareScript = Join-Path $RepoRoot "scripts\prepare_offline_release.ps1"
 function Write-Step {
     param([string]$Message)
     Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Get-VersionFromGitTag {
+    param([string]$RepoPath)
+
+    $git = Get-Command -Name "git" -ErrorAction SilentlyContinue
+    if (-not $git) {
+        throw "Version was not specified and 'git' is not available on PATH to derive it from the latest tag."
+    }
+
+    Push-Location -LiteralPath $RepoPath
+    try {
+        $tag = & $git.Source describe --tags --abbrev=0 2>$null
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tag)) {
+            $tag = & $git.Source tag --list --sort=-v:refname | Select-Object -First 1
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        throw "No git tag found. Create a tag like 'v1.0.0' or pass -Version explicitly."
+    }
+
+    $tag = $tag.Trim()
+    $normalized = if ($tag.StartsWith("v") -or $tag.StartsWith("V")) { $tag.Substring(1) } else { $tag }
+
+    if ($normalized -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Latest git tag '$tag' is not a valid version (expected 'vX.Y.Z' or 'X.Y.Z'). Pass -Version explicitly to override."
+    }
+
+    return $normalized
+}
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    Write-Step "Resolving version from latest git tag"
+    $Version = Get-VersionFromGitTag -RepoPath $RepoRoot
+    Write-Host "    Using version $Version" -ForegroundColor Green
+}
+else {
+    $trimmed = $Version.Trim()
+    if ($trimmed.StartsWith("v") -or $trimmed.StartsWith("V")) {
+        $trimmed = $trimmed.Substring(1)
+    }
+    if ($trimmed -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Invalid -Version '$Version' (expected 'vX.Y.Z' or 'X.Y.Z')."
+    }
+    $Version = $trimmed
 }
 
 function Resolve-IsccPath {
