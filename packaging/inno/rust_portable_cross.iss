@@ -1,5 +1,7 @@
 #define MyAppName "Rust 便携交叉编译工具包"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppPublisher "Rust Portable Cross"
 #define MyAppExeName "Activate Rust Portable Cross.ps1"
 #define StageRoot "..\..\dist\staging"
