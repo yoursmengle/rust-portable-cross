@@ -23,6 +23,22 @@ if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "AArch64 support is not installed. Missing wrapper: $wrapperPath"
 }
 
+$zigArPath = Join-Path $toolkitRoot "tools\wrappers\zig-ar.cmd"
+$zigRanlibPath = Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.cmd"
+if (-not (Test-Path -LiteralPath $zigArPath)) {
+    throw "Missing archive wrapper: $zigArPath"
+}
+if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
+    throw "Missing ranlib wrapper: $zigRanlibPath"
+}
+
+$env:CC_aarch64_unknown_linux_musl = "aarch64-linux-musl-gcc.cmd"
+$env:AR_aarch64_unknown_linux_musl = "zig-ar.cmd"
+$env:RANLIB_aarch64_unknown_linux_musl = "zig-ranlib.cmd"
+Set-Item -Path "Env:CC_aarch64-unknown-linux-musl" -Value "aarch64-linux-musl-gcc.cmd"
+Set-Item -Path "Env:AR_aarch64-unknown-linux-musl" -Value "zig-ar.cmd"
+Set-Item -Path "Env:RANLIB_aarch64-unknown-linux-musl" -Value "zig-ranlib.cmd"
+
 New-Item -ItemType Directory -Path $cargoDir -Force | Out-Null
 Copy-Item -LiteralPath $configSource -Destination $configTarget -Force
 

@@ -70,6 +70,47 @@ foreach ($mapping in $optionalWrapperMappings) {
     }
 }
 
+if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-ar.cmd")) {
+    $env:AR = "zig-ar.cmd"
+    $env:AR_armv7_unknown_linux_musleabihf = "zig-ar.cmd"
+    $env:AR_aarch64_unknown_linux_musl = "zig-ar.cmd"
+    $env:AR_x86_64_pc_windows_gnu = "zig-ar.cmd"
+    Set-Item -Path "Env:AR_armv7-unknown-linux-musleabihf" -Value "zig-ar.cmd"
+    Set-Item -Path "Env:AR_aarch64-unknown-linux-musl" -Value "zig-ar.cmd"
+    Set-Item -Path "Env:AR_x86_64-pc-windows-gnu" -Value "zig-ar.cmd"
+}
+
+if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-ranlib.cmd")) {
+    $env:RANLIB = "zig-ranlib.cmd"
+    $env:RANLIB_armv7_unknown_linux_musleabihf = "zig-ranlib.cmd"
+    $env:RANLIB_aarch64_unknown_linux_musl = "zig-ranlib.cmd"
+    $env:RANLIB_x86_64_pc_windows_gnu = "zig-ranlib.cmd"
+    Set-Item -Path "Env:RANLIB_armv7-unknown-linux-musleabihf" -Value "zig-ranlib.cmd"
+    Set-Item -Path "Env:RANLIB_aarch64-unknown-linux-musl" -Value "zig-ranlib.cmd"
+    Set-Item -Path "Env:RANLIB_x86_64-pc-windows-gnu" -Value "zig-ranlib.cmd"
+}
+
+if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-dlltool.cmd")) {
+    $env:DLLTOOL = "zig-dlltool.cmd"
+    $env:DLLTOOL_x86_64_pc_windows_gnu = "zig-dlltool.cmd"
+    Set-Item -Path "Env:DLLTOOL_x86_64-pc-windows-gnu" -Value "zig-dlltool.cmd"
+
+    $x64Rustflags = "-C dlltool=zig-dlltool.cmd"
+    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS)) {
+        $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = $x64Rustflags
+    }
+    elseif ($env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS -notmatch [regex]::Escape("dlltool=zig-dlltool.cmd")) {
+        $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = "$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS $x64Rustflags"
+    }
+}
+
+# Provide sane defaults for cc-rs crates when users invoke `cargo build`
+# directly without target-specific scripts.
+if (Test-Path -LiteralPath (Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.cmd")) {
+    $env:CC = "x86_64-w64-mingw32-gcc.cmd"
+    $env:HOST_CC = "x86_64-w64-mingw32-gcc.cmd"
+}
+
 Write-Host "RUST_PORTABLE_CROSS_ROOT=$env:RUST_PORTABLE_CROSS_ROOT"
 Write-Host "CARGO_HOME=$env:CARGO_HOME"
 Write-Host "RUSTUP_HOME=$env:RUSTUP_HOME"

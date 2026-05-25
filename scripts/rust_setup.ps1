@@ -599,13 +599,30 @@ function Invoke-RustToolkitSetup {
         ")",
         "",
         "`$selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained`"))",
+        "`$selfContainedGcc = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained\x86_64-w64-mingw32-gcc.exe`"))",
         "`$filteredArgs = New-Object 'System.Collections.Generic.List[string]'",
+        "`$skipNext = `$false",
+        "`$requiresGccLinkFallback = `$false",
         "",
         "foreach (`$a in `$args) {",
         "    `$arg = [string]`$a",
         "    `$normalizedArg = `$arg.Trim('`"')",
         "",
+        "    if (`$skipNext) {",
+        "        `$skipNext = `$false",
+        "        continue",
+        "    }",
+        "",
         "    if (`$normalizedArg -in `$unsupported) {",
+        "        continue",
+        "    }",
+        "",
+        "    # cc-rs may pass the Rust 4-tuple target, which zig rejects.",
+        "    if (`$normalizedArg.StartsWith('--target=')) {",
+        "        continue",
+        "    }",
+        "    if (`$normalizedArg -eq '--target' -or `$normalizedArg -eq '-target') {",
+        "        `$skipNext = `$true",
         "        continue",
         "    }",
         "",
@@ -614,10 +631,21 @@ function Invoke-RustToolkitSetup {
         "        continue",
         "    }",
         "",
+        "    # rustc uses ``-Wl,<path>\\list.def`` when linking proc-macro DLLs; zig's",
+        "    # linker frontend rejects this form, so fallback to the bundled GCC linker.",
+        "    if (`$normalizedArg -match '^-Wl,.*[\\/]list\.def$') {",
+        "        `$requiresGccLinkFallback = `$true",
+        "    }",
+        "",
         "    `$filteredArgs.Add(`$arg)",
         "}",
         "",
-        "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu -fuse-ld=ld @filteredArgs `"-L`$selfContainedLibDir`"",
+        "if (`$requiresGccLinkFallback) {",
+        "    & `$selfContainedGcc @filteredArgs",
+        "}",
+        "else {",
+        "    & `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu -fuse-ld=ld @filteredArgs `"-L`$selfContainedLibDir`"",
+        "}",
         "exit `$LASTEXITCODE"
     ) -join "`r`n"
     Set-Content -LiteralPath $winPs1Path -Value $winPs1Body -Encoding ASCII
@@ -628,6 +656,52 @@ function Invoke-RustToolkitSetup {
         "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0x86_64-w64-mingw32-gcc.ps1`" %*"
     ) -join "`r`n"
     Set-Content -LiteralPath $winCmdPath -Value $winCmdBody -Encoding ASCII
+
+    # Generic archive wrappers used by cc-rs for crates that require C/ASM build steps.
+    $zigArPs1Path = Join-Path $wrappersRoot "zig-ar.ps1"
+    $zigArPs1Body = @(
+        "# Wrapper: forwards args to ``zig ar`` to provide a repository-local archive tool.",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" ar @args",
+        "exit `$LASTEXITCODE"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigArPs1Path -Value $zigArPs1Body -Encoding ASCII
+
+    $zigArCmdPath = Join-Path $wrappersRoot "zig-ar.cmd"
+    $zigArCmdBody = @(
+        "@echo off",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-ar.ps1`" %*"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigArCmdPath -Value $zigArCmdBody -Encoding ASCII
+
+    $zigRanlibPs1Path = Join-Path $wrappersRoot "zig-ranlib.ps1"
+    $zigRanlibPs1Body = @(
+        "# Wrapper: forwards args to ``zig ranlib`` for static archive index updates.",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" ranlib @args",
+        "exit `$LASTEXITCODE"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigRanlibPs1Path -Value $zigRanlibPs1Body -Encoding ASCII
+
+    $zigRanlibCmdPath = Join-Path $wrappersRoot "zig-ranlib.cmd"
+    $zigRanlibCmdBody = @(
+        "@echo off",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-ranlib.ps1`" %*"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigRanlibCmdPath -Value $zigRanlibCmdBody -Encoding ASCII
+
+    $zigDlltoolPs1Path = Join-Path $wrappersRoot "zig-dlltool.ps1"
+    $zigDlltoolPs1Body = @(
+        "# Wrapper: forwards args to ``zig dlltool``.",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" dlltool @args",
+        "exit `$LASTEXITCODE"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigDlltoolPs1Path -Value $zigDlltoolPs1Body -Encoding ASCII
+
+    $zigDlltoolCmdPath = Join-Path $wrappersRoot "zig-dlltool.cmd"
+    $zigDlltoolCmdBody = @(
+        "@echo off",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-dlltool.ps1`" %*"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigDlltoolCmdPath -Value $zigDlltoolCmdBody -Encoding ASCII
 
     # zig/clang may translate `-l:libpthread.a` into `libpthread.a.lib` lookup.
     # Add a compatibility alias in Rust's self-contained MinGW lib dir.
