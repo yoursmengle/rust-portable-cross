@@ -23,6 +23,22 @@ if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "ARMv7 support is not installed. Missing wrapper: $wrapperPath"
 }
 
+$zigArPath = Join-Path $toolkitRoot "tools\wrappers\zig-ar.cmd"
+$zigRanlibPath = Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.cmd"
+if (-not (Test-Path -LiteralPath $zigArPath)) {
+    throw "Missing archive wrapper: $zigArPath"
+}
+if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
+    throw "Missing ranlib wrapper: $zigRanlibPath"
+}
+
+$env:CC_armv7_unknown_linux_musleabihf = "arm-linux-musleabihf-gcc.cmd"
+$env:AR_armv7_unknown_linux_musleabihf = "zig-ar.cmd"
+$env:RANLIB_armv7_unknown_linux_musleabihf = "zig-ranlib.cmd"
+Set-Item -Path "Env:CC_armv7-unknown-linux-musleabihf" -Value "arm-linux-musleabihf-gcc.cmd"
+Set-Item -Path "Env:AR_armv7-unknown-linux-musleabihf" -Value "zig-ar.cmd"
+Set-Item -Path "Env:RANLIB_armv7-unknown-linux-musleabihf" -Value "zig-ranlib.cmd"
+
 New-Item -ItemType Directory -Path $cargoDir -Force | Out-Null
 Copy-Item -LiteralPath $configSource -Destination $configTarget -Force
 

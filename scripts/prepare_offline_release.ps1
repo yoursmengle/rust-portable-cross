@@ -221,6 +221,37 @@ function Copy-RelativeEntry {
     Copy-FileToDestination -SourcePath $sourcePath -DestinationPath $targetPath -RecordedFiles $RecordedFiles -InstallRelativePath $relativeInstallPath
 }
 
+function Copy-RelativeGlobEntries {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativeGlob,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationRoot,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [System.Collections.Generic.List[string]]$RecordedFiles
+    )
+
+    $normalizedGlob = $RelativeGlob.Replace("/", "\\")
+    $globPath = Join-Path $SourceRoot $normalizedGlob
+    $matchedFiles = @(Get-ChildItem -Path $globPath -File -ErrorAction SilentlyContinue)
+
+    if ($matchedFiles.Count -eq 0) {
+        throw "Required path pattern matched no files: $globPath"
+    }
+
+    foreach ($matchedFile in $matchedFiles) {
+        $installRelativePath = Get-RelativePath -BasePath $SourceRoot -ChildPath $matchedFile.FullName
+        $destinationPath = Join-Path $DestinationRoot ($installRelativePath.Replace("/", "\\"))
+        Copy-FileToDestination -SourcePath $matchedFile.FullName -DestinationPath $destinationPath -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
+    }
+}
+
 function Copy-HostToolchainCore {
     param(
         [Parameter(Mandatory = $true)]
@@ -343,6 +374,9 @@ function Invoke-PrepareOfflineRelease {
     foreach ($requiredPath in @(
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
+        (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
+        (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
+        (Join-Path $paths.ToolkitRoot "check_tool_x64_win.ps1"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\cargo.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustc.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"),
@@ -376,6 +410,9 @@ function Invoke-PrepareOfflineRelease {
         "config",
         "scripts/rust_env.ps1",
         "scripts/finalize_offline_install.ps1",
+        "check_tool_armv7.ps1",
+        "check_tool_aarch64.ps1",
+        "check_tool_x64_win.ps1",
         "tools/rustup",
         "tools/cargo-home/bin",
         "tools/zig",
@@ -383,6 +420,8 @@ function Invoke-PrepareOfflineRelease {
     )) {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }
+
+    Copy-RelativeGlobEntries -SourceRoot $paths.ToolkitRoot -RelativeGlob "tools/wrappers/zig*.*" -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
 
     Copy-HostToolchainCore -Paths $paths -RecordedFiles $coreFiles
 
