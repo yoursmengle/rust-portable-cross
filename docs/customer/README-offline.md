@@ -5,6 +5,7 @@
 This installer deploys a prebuilt offline Rust toolchain for Windows.
 
 - The installer itself does not download anything.
+- The sample Rust project is installed under `sample\`.
 - You can choose support for:
   - `armv7`
   - `aarch64`

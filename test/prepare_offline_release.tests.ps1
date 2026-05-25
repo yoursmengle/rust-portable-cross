@@ -61,6 +61,12 @@ $distRoot = Join-Path $tempRoot "dist"
 try {
     New-TestFile -Path (Join-Path $toolkitRoot "docs\customer\README-offline.md")
     New-TestFile -Path (Join-Path $toolkitRoot "config\.cargo\config.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\.cargo\config.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\.gitignore") -Content "target/"
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\Cargo.lock")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\src\main.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample\target\release\sample.exe") -Content "do not stage"
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_armv7.ps1")
@@ -104,6 +110,11 @@ try {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\finalize_offline_install.ps1")) -Message "core payload should contain finalize_offline_install.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "docs\README-offline.md")) -Message "core payload should contain the customer README"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\Cargo.toml")) -Message "core payload should contain the sample manifest"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\Cargo.lock")) -Message "core payload should contain the sample lockfile"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\.cargo\config.toml")) -Message "core payload should contain the sample cargo config"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\src\main.rs")) -Message "core payload should contain the sample source"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "sample\target"))) -Message "core payload should not contain sample build artifacts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "Activate Rust Portable Cross.ps1")) -Message "core payload should contain the activation entry script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ar.cmd")) -Message "core payload should contain zig wrapper cmd scripts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-dlltool.ps1")) -Message "core payload should contain zig wrapper ps1 scripts"
@@ -113,8 +124,13 @@ try {
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\scripts\rust_build_armv7.ps1")) -Message "armv7 payload should contain its build script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\tools\wrappers\arm-linux-musleabihf-gcc.cmd")) -Message "armv7 payload should contain its wrapper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\tools\wrappers\arm-linux-musleabihf-gcc.ps1")) -Message "armv7 payload should contain its PowerShell wrapper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\scripts\rust_build_aarch64.ps1")) -Message "aarch64 payload should contain its build script"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.cmd")) -Message "aarch64 payload should contain its wrapper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.ps1")) -Message "aarch64 payload should contain its PowerShell wrapper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win\scripts\rust_build_x64_win.ps1")) -Message "x64_win payload should contain its build script"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win\tools\wrappers\x86_64-w64-mingw32-gcc.cmd")) -Message "x64_win payload should contain its wrapper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win\tools\wrappers\x86_64-w64-mingw32-gcc.ps1")) -Message "x64_win payload should contain its PowerShell wrapper"
 
     $layout = Get-Content -LiteralPath (Join-Path $coreRoot "install-layout.json") -Raw | ConvertFrom-Json -Depth 6
     Assert-Equal -Actual $layout.productVersion -Expected "1.2.3" -Message "layout should preserve the requested version"
@@ -122,9 +138,14 @@ try {
     Assert-Equal -Actual $layout.defaultComponents.Count -Expected 1 -Message "layout should keep a single default component"
     Assert-Equal -Actual $layout.defaultComponents[0] -Expected "armv7" -Message "layout should default to armv7"
     Assert-True -Condition ($layout.componentFiles.core -contains "tools/wrappers/zig-ar.cmd") -Message "layout should record core zig wrapper files"
+    Assert-True -Condition ($layout.componentFiles.core -contains "sample/Cargo.toml") -Message "layout should record sample files"
+    Assert-True -Condition (-not ($layout.componentFiles.core -contains "sample/target/release/sample.exe")) -Message "layout should not record sample build artifacts"
     Assert-True -Condition ($layout.componentFiles.armv7 -contains "scripts/rust_build_armv7.ps1") -Message "layout should record armv7-owned files"
+    Assert-True -Condition ($layout.componentFiles.armv7 -contains "tools/wrappers/arm-linux-musleabihf-gcc.ps1") -Message "layout should record armv7 PowerShell wrapper"
     Assert-True -Condition ($layout.componentFiles.aarch64 -contains "scripts/rust_build_aarch64.ps1") -Message "layout should record aarch64-owned files"
+    Assert-True -Condition ($layout.componentFiles.aarch64 -contains "tools/wrappers/aarch64-linux-musl-gcc.ps1") -Message "layout should record aarch64 PowerShell wrapper"
     Assert-True -Condition ($layout.componentFiles.x64_win -contains "scripts/rust_build_x64_win.ps1") -Message "layout should record x64_win-owned files"
+    Assert-True -Condition ($layout.componentFiles.x64_win -contains "tools/wrappers/x86_64-w64-mingw32-gcc.ps1") -Message "layout should record x64 PowerShell wrapper"
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
