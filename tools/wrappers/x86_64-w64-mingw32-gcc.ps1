@@ -1,59 +1,96 @@
-# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering flags
-# that rustc injects for x86_64-pc-windows-gnu but zig's LLD does not support.
-# Also add Rust's bundled self-contained MinGW prefixes so host link does not
-# depend on any system GCC installation.
+# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering or
+# normalizing flags that rustc injects for x86_64-pc-windows-gnu but Zig does
+# not accept verbatim.
 $unsupported = @(
     '-Wl,--disable-auto-image-base',
     '-Wl,-Bdynamic'
 )
 
-$selfContainedBinDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained"))
 $selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained"))
-$selfContainedGcc = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained\x86_64-w64-mingw32-gcc.exe"))
-$filteredArgs = New-Object 'System.Collections.Generic.List[string]'
-$skipNext = $false
-$requiresGccLinkFallback = $false
+$zigExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig\zig.exe"))
 
-foreach ($a in $args) {
-    $arg = [string]$a
+function ConvertTo-ResponseArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Argument
+    )
+
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    return '"' + ($Argument -replace '"', '\"') + '"'
+}
+
+function Convert-LinkerArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Argument
+    )
+
+    $arg = [string]$Argument
     $normalizedArg = $arg.Trim('"')
 
-    if ($skipNext) {
-        $skipNext = $false
-        continue
+    if ($script:SkipNextLinkerArgument) {
+        $script:SkipNextLinkerArgument = $false
+        return @()
     }
 
     if ($normalizedArg -in $unsupported) {
-        continue
+        return @()
     }
 
     # cc-rs may pass the Rust 4-tuple target, which zig rejects.
     if ($normalizedArg.StartsWith('--target=')) {
-        continue
+        return @()
     }
     if ($normalizedArg -eq '--target' -or $normalizedArg -eq '-target') {
-        $skipNext = $true
-        continue
+        $script:SkipNextLinkerArgument = $true
+        return @()
     }
 
-    if ($normalizedArg -eq '-l:libpthread.a') {
-        $filteredArgs.Add((Join-Path $selfContainedLibDir 'libpthread.a'))
-        continue
+    if ($normalizedArg -match '^-l:?libpthread\.a$' -or $normalizedArg -eq '-llibpthread.a') {
+        return @((Join-Path $selfContainedLibDir 'libpthread.a'))
     }
 
-    # rustc uses `-Wl,<path>\\list.def` when linking proc-macro DLLs; zig's
-    # linker frontend rejects this form, so fallback to the bundled GCC linker.
-    if ($normalizedArg -match 'list\.def$') {
-        $requiresGccLinkFallback = $true
+    # rustc uses `-Wl,<path>\list.def` when linking proc-macro DLLs. Zig
+    # rejects that as an unsupported linker arg, but accepts the .def file as
+    # a normal input.
+    if ($normalizedArg -match '^-Wl,(.+\.def)$') {
+        return @($Matches[1])
     }
 
-    $filteredArgs.Add($arg)
+    if ($normalizedArg.StartsWith('@')) {
+        $responsePath = $normalizedArg.Substring(1)
+        if (Test-Path -LiteralPath $responsePath -PathType Leaf) {
+            $convertedResponsePath = "$responsePath.zig"
+            $convertedResponseArgs = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($line in [System.IO.File]::ReadAllLines($responsePath)) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                foreach ($converted in @(Convert-LinkerArgument -Argument $line)) {
+                    $convertedResponseArgs.Add((ConvertTo-ResponseArgument -Argument $converted))
+                }
+            }
+
+            [System.IO.File]::WriteAllLines($convertedResponsePath, [string[]]$convertedResponseArgs)
+            return @("@$convertedResponsePath")
+        }
+    }
+
+    return @($arg)
 }
 
-if ($requiresGccLinkFallback) {
-    & $selfContainedGcc "-B$selfContainedBinDir" "-L$selfContainedLibDir" @filteredArgs
+$filteredArgs = New-Object 'System.Collections.Generic.List[string]'
+$script:SkipNextLinkerArgument = $false
+
+foreach ($a in $args) {
+    foreach ($converted in @(Convert-LinkerArgument -Argument ([string]$a))) {
+        $filteredArgs.Add($converted)
+    }
 }
-else {
-    & $selfContainedGcc "-B$selfContainedBinDir" "-L$selfContainedLibDir" @filteredArgs
-}
+
+& $zigExe cc -target x86_64-windows-gnu "-L$selfContainedLibDir" @filteredArgs
 exit $LASTEXITCODE

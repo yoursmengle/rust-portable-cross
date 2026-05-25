@@ -18,6 +18,37 @@ if (-not (Test-Path -LiteralPath $configSource)) {
     throw "Missing toolkit Cargo config at $configSource"
 }
 
+function Sync-CargoConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Destination
+    )
+
+    $destinationDir = Split-Path -Parent $Destination
+    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+        $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
+        $destinationHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+        if ($sourceHash -eq $destinationHash) {
+            Write-Host "Cargo config already up to date: $Destination"
+            return
+        }
+
+        $backupPath = "$Destination.rust-portable-cross.bak"
+        Copy-Item -LiteralPath $Destination -Destination $backupPath -Force
+        Write-Host "Existing Cargo config backed up: $backupPath"
+    }
+    elseif (Test-Path -LiteralPath $Destination) {
+        throw "Cargo config path exists but is not a file: $Destination"
+    }
+
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
 $wrapperPath = Join-Path $toolkitRoot "tools\wrappers\x86_64-w64-mingw32-gcc.cmd"
 if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "x64_win support is not installed. Missing wrapper: $wrapperPath"
@@ -69,8 +100,7 @@ if ((Test-Path -LiteralPath $libpthread) -and -not (Test-Path -LiteralPath $libp
     Copy-Item -LiteralPath $libpthread -Destination $libpthreadCompatAlias -Force
 }
 
-New-Item -ItemType Directory -Path $cargoDir -Force | Out-Null
-Copy-Item -LiteralPath $configSource -Destination $configTarget -Force
+Sync-CargoConfig -Source $configSource -Destination $configTarget
 
 cargo build --release --target x86_64-pc-windows-gnu
 if ($LASTEXITCODE -ne 0) {

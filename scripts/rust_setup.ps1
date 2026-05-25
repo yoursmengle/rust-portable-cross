@@ -568,9 +568,8 @@ function Invoke-RustToolkitSetup {
             "foreach (`$a in `$args) {",
             "    if (`$skipNext) { `$skipNext = `$false; continue }",
             "    `$arg = [string]`$a",
-            "    `$normalizedArg = `$arg.Trim('\"')",
-            "    if ((`$normalizedArg -match '--target') -and (`$normalizedArg -match 'armv7-unknown-linux-musleabihf')) { continue }",
-            "    if (`$normalizedArg -eq 'armv7-unknown-linux-musleabihf') { continue }",
+            "    `$normalizedArg = `$arg.Trim('`"')",
+            "    if (`$normalizedArg.StartsWith('--target=')) { continue }",
             "    if (`$normalizedArg -eq '-target' -or `$normalizedArg -eq '--target') { `$skipNext = `$true; continue }",
             "    `$filtered.Add(`$arg)",
             "}",
@@ -588,70 +587,107 @@ function Invoke-RustToolkitSetup {
         Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
     }
 
-    # Windows GNU host wrapper: delegates to a PowerShell helper that filters
-    # linker flags unsupported by the bundled host GCC linker invocation.
+    # Windows GNU host wrapper: delegates to a PowerShell helper that normalizes
+    # rustc linker arguments before invoking the repository-local Zig linker.
     $winPs1Path = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.ps1"
-    $winPs1Body = @(
-        "# Wrapper: forwards args to the bundled self-contained x86_64-w64-mingw32-gcc linker, filtering flags",
-        "# that rustc injects for x86_64-pc-windows-gnu but the bundled linker does not support.",
-        "# Also add Rust's bundled self-contained MinGW prefixes so host link does not",
-        "# depend on any system GCC installation.",
-        "`$unsupported = @(",
-        "    '-Wl,--disable-auto-image-base',",
-        "    '-Wl,-Bdynamic'",
-        ")",
-        "",
-        "`$selfContainedBinDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained`"))",
-        "`$selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained`"))",
-        "`$selfContainedGcc = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained\x86_64-w64-mingw32-gcc.exe`"))",
-        "`$filteredArgs = New-Object 'System.Collections.Generic.List[string]'",
-        "`$skipNext = `$false",
-        "`$requiresGccLinkFallback = `$false",
-        "",
-        "foreach (`$a in `$args) {",
-        "    `$arg = [string]`$a",
-        "    `$normalizedArg = `$arg.Trim('`"')",
-        "",
-        "    if (`$skipNext) {",
-        "        `$skipNext = `$false",
-        "        continue",
-        "    }",
-        "",
-        "    if (`$normalizedArg -in `$unsupported) {",
-        "        continue",
-        "    }",
-        "",
-        "    # cc-rs may pass the Rust 4-tuple target, which zig rejects.",
-        "    if (`$normalizedArg.StartsWith('--target=')) {",
-        "        continue",
-        "    }",
-        "    if (`$normalizedArg -eq '--target' -or `$normalizedArg -eq '-target') {",
-        "        `$skipNext = `$true",
-        "        continue",
-        "    }",
-        "",
-        "    if (`$normalizedArg -eq '-l:libpthread.a') {",
-        "        `$filteredArgs.Add((Join-Path `$selfContainedLibDir 'libpthread.a'))",
-        "        continue",
-        "    }",
-        "",
-        "    # rustc uses ``-Wl,<path>\\list.def`` when linking proc-macro DLLs; zig's",
-        "    # linker frontend rejects this form, so fallback to the bundled GCC linker.",
-        "    if (`$normalizedArg -match 'list\.def$') {",
-        "        `$requiresGccLinkFallback = `$true",
-        "    }",
-        "",
-        "    `$filteredArgs.Add(`$arg)",
-        "}",
-        "",
-        "if (`$requiresGccLinkFallback) {",
-        "    & `$selfContainedGcc `"-B`$selfContainedBinDir`" `"-L`$selfContainedLibDir`" @filteredArgs",
-        "}",
-        "else {",
-        "    & `$selfContainedGcc `"-B`$selfContainedBinDir`" `"-L`$selfContainedLibDir`" @filteredArgs",
-        "}",
-        "exit `$LASTEXITCODE"
-    ) -join "`r`n"
+    $winPs1Body = @'
+# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering or
+# normalizing flags that rustc injects for x86_64-pc-windows-gnu but Zig does
+# not accept verbatim.
+$unsupported = @(
+    '-Wl,--disable-auto-image-base',
+    '-Wl,-Bdynamic'
+)
+
+$selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained"))
+$zigExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig\zig.exe"))
+
+function ConvertTo-ResponseArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Argument
+    )
+
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    return '"' + ($Argument -replace '"', '\"') + '"'
+}
+
+function Convert-LinkerArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Argument
+    )
+
+    $arg = [string]$Argument
+    $normalizedArg = $arg.Trim('"')
+
+    if ($script:SkipNextLinkerArgument) {
+        $script:SkipNextLinkerArgument = $false
+        return @()
+    }
+
+    if ($normalizedArg -in $unsupported) {
+        return @()
+    }
+
+    # cc-rs may pass the Rust 4-tuple target, which zig rejects.
+    if ($normalizedArg.StartsWith('--target=')) {
+        return @()
+    }
+    if ($normalizedArg -eq '--target' -or $normalizedArg -eq '-target') {
+        $script:SkipNextLinkerArgument = $true
+        return @()
+    }
+
+    if ($normalizedArg -match '^-l:?libpthread\.a$' -or $normalizedArg -eq '-llibpthread.a') {
+        return @((Join-Path $selfContainedLibDir 'libpthread.a'))
+    }
+
+    # rustc uses `-Wl,<path>\list.def` when linking proc-macro DLLs. Zig
+    # rejects that as an unsupported linker arg, but accepts the .def file as
+    # a normal input.
+    if ($normalizedArg -match '^-Wl,(.+\.def)$') {
+        return @($Matches[1])
+    }
+
+    if ($normalizedArg.StartsWith('@')) {
+        $responsePath = $normalizedArg.Substring(1)
+        if (Test-Path -LiteralPath $responsePath -PathType Leaf) {
+            $convertedResponsePath = "$responsePath.zig"
+            $convertedResponseArgs = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($line in [System.IO.File]::ReadAllLines($responsePath)) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                foreach ($converted in @(Convert-LinkerArgument -Argument $line)) {
+                    $convertedResponseArgs.Add((ConvertTo-ResponseArgument -Argument $converted))
+                }
+            }
+
+            [System.IO.File]::WriteAllLines($convertedResponsePath, [string[]]$convertedResponseArgs)
+            return @("@$convertedResponsePath")
+        }
+    }
+
+    return @($arg)
+}
+
+$filteredArgs = New-Object 'System.Collections.Generic.List[string]'
+$script:SkipNextLinkerArgument = $false
+
+foreach ($a in $args) {
+    foreach ($converted in @(Convert-LinkerArgument -Argument ([string]$a))) {
+        $filteredArgs.Add($converted)
+    }
+}
+
+& $zigExe cc -target x86_64-windows-gnu "-L$selfContainedLibDir" @filteredArgs
+exit $LASTEXITCODE
+'@
     Set-Content -LiteralPath $winPs1Path -Value $winPs1Body -Encoding ASCII
 
     $winCmdPath = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.cmd"
