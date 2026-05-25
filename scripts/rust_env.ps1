@@ -45,6 +45,11 @@ $env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;
 
 $optionalWrapperMappings = @(
     @{
+        WrapperPath = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.cmd"
+        EnvVar = "CC_x86_64_pc_windows_gnu"
+        WrapperName = "x86_64-w64-mingw32-gcc.cmd"
+    },
+    @{
         WrapperPath = Join-Path $wrappersRoot "arm-linux-musleabihf-gcc.cmd"
         EnvVar = "CC_armv7_unknown_linux_musleabihf"
         WrapperName = "arm-linux-musleabihf-gcc.cmd"

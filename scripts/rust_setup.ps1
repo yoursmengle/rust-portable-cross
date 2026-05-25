@@ -591,13 +591,33 @@ function Invoke-RustToolkitSetup {
     $winPs1Body = @(
         "# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering flags",
         "# that rustc injects for x86_64-pc-windows-gnu but zig's LLD does not support.",
+        "# Also add Rust's bundled self-contained MinGW lib dir so host link does not",
+        "# depend on any system GCC installation.",
         "`$unsupported = @(",
-        "    '-Wl,--disable-auto-image-base'",
+        "    '-Wl,--disable-auto-image-base',",
+        "    '-Wl,-Bdynamic'",
         ")",
         "",
-        "`$filteredArgs = `$args | Where-Object { `$_ -notin `$unsupported }",
+        "`$selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained`"))",
+        "`$filteredArgs = New-Object 'System.Collections.Generic.List[string]'",
         "",
-        "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu @filteredArgs",
+        "foreach (`$a in `$args) {",
+        "    `$arg = [string]`$a",
+        "    `$normalizedArg = `$arg.Trim('`"')",
+        "",
+        "    if (`$normalizedArg -in `$unsupported) {",
+        "        continue",
+        "    }",
+        "",
+        "    if (`$normalizedArg -eq '-l:libpthread.a') {",
+        "        `$filteredArgs.Add((Join-Path `$selfContainedLibDir 'libpthread.a'))",
+        "        continue",
+        "    }",
+        "",
+        "    `$filteredArgs.Add(`$arg)",
+        "}",
+        "",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu -fuse-ld=ld @filteredArgs `"-L`$selfContainedLibDir`"",
         "exit `$LASTEXITCODE"
     ) -join "`r`n"
     Set-Content -LiteralPath $winPs1Path -Value $winPs1Body -Encoding ASCII
@@ -608,6 +628,15 @@ function Invoke-RustToolkitSetup {
         "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0x86_64-w64-mingw32-gcc.ps1`" %*"
     ) -join "`r`n"
     Set-Content -LiteralPath $winCmdPath -Value $winCmdBody -Encoding ASCII
+
+    # zig/clang may translate `-l:libpthread.a` into `libpthread.a.lib` lookup.
+    # Add a compatibility alias in Rust's self-contained MinGW lib dir.
+    $selfContainedLibDir = Join-Path $rustupHome "toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained"
+    $libpthreadPath = Join-Path $selfContainedLibDir "libpthread.a"
+    $libpthreadCompatAliasPath = Join-Path $selfContainedLibDir "libpthread.a.lib"
+    if ((Test-Path -LiteralPath $libpthreadPath) -and -not (Test-Path -LiteralPath $libpthreadCompatAliasPath)) {
+        Copy-Item -LiteralPath $libpthreadPath -Destination $libpthreadCompatAliasPath -Force
+    }
 
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()
