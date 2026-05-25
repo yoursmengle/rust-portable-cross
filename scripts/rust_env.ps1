@@ -10,6 +10,7 @@ $zigRoot = Join-Path $toolsRoot "zig"
 $zigLocalCache = Join-Path $toolsRoot "zig-local-cache"
 $zigGlobalCache = Join-Path $toolsRoot "zig-global-cache"
 $wrappersRoot = Join-Path $toolsRoot "wrappers"
+$rustSelfContainedBin = Join-Path $rustupHome "toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained"
 $cargoExe = Join-Path $cargoHome "bin\cargo.exe"
 $rustcExe = Join-Path $cargoHome "bin\rustc.exe"
 $rustupExe = Join-Path $cargoHome "bin\rustup.exe"
@@ -27,6 +28,10 @@ foreach ($path in $requiredPaths) {
     }
 }
 
+if (-not (Test-Path -LiteralPath $rustSelfContainedBin -PathType Container)) {
+    throw "Missing required toolkit directory: $rustSelfContainedBin`nRun .\scripts\rust_setup.ps1 first."
+}
+
 New-Item -ItemType Directory -Path $zigLocalCache -Force | Out-Null
 New-Item -ItemType Directory -Path $zigGlobalCache -Force | Out-Null
 
@@ -36,7 +41,7 @@ $env:RUSTUP_HOME = $rustupHome
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
-$env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$env:PATH"
+$env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$rustSelfContainedBin;$env:PATH"
 
 $optionalWrapperMappings = @(
     @{
