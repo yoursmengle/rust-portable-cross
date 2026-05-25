@@ -10,9 +10,15 @@ $filtered = New-Object 'System.Collections.Generic.List[string]'
 $skipNext = $false
 foreach ($a in $args) {
     if ($skipNext) { $skipNext = $false; continue }
-    if ($a -is [string] -and $a.StartsWith('--target=')) { continue }
-    if ($a -eq '-target' -or $a -eq '--target') { $skipNext = $true; continue }
-    $filtered.Add([string]$a)
+
+    $arg = [string]$a
+    $normalizedArg = $arg.Trim('"')
+
+    if (($normalizedArg -match '--target') -and ($normalizedArg -match 'armv7-unknown-linux-musleabihf')) { continue }
+    if ($normalizedArg -eq 'armv7-unknown-linux-musleabihf') { continue }
+    if ($normalizedArg -eq '-target' -or $normalizedArg -eq '--target') { $skipNext = $true; continue }
+
+    $filtered.Add($arg)
 }
 
 & "$PSScriptRoot\..\zig\zig.exe" cc -target $zigTarget @filtered

@@ -1,0 +1,90 @@
+RUST_PORTABLE_CROSS_ROOT=D:\rust-portable-cross-src
+CARGO_HOME=D:\rust-portable-cross-src\tools\cargo-home
+RUSTUP_HOME=D:\rust-portable-cross-src\tools\rustup-home
+ZIG_LOCAL_CACHE_DIR=D:\rust-portable-cross-src\tools\zig-local-cache
+ZIG_GLOBAL_CACHE_DIR=D:\rust-portable-cross-src\tools\zig-global-cache
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+rustc 1.95.0 (59807616e 2026-04-14)
+aarch64-unknown-linux-musl
+armv7-unknown-linux-musleabihf
+x86_64-pc-windows-gnu
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.5
+   Compiling serde_derive v1.0.228
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling tokio-rustls v0.26.4
+   Compiling clap_derive v4.6.1
+   Compiling thiserror-impl v1.0.69
+   Compiling hyper-rustls v0.27.9
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustch4RZ71\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustch4RZ71\\symbols.o" "<8 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustch4RZ71\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\displaydoc-a7bb84e63dd77a68.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libdisplaydoc-a7bb84e63dd77a68.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `displaydoc` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcxOuSOQ\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcxOuSOQ\\symbols.o" "<12 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcxOuSOQ\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsynstructure-ebc795573c3d42cd,libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\yoke_derive-6663e53f88f7163d.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libyoke_derive-6663e53f88f7163d.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `yoke-derive` (lib) due to 1 previous error
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustceVU0O0\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustceVU0O0\\symbols.o" "<16 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustceVU0O0\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsynstructure-ebc795573c3d42cd,libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\zerofrom_derive-4b067c17090e937c.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libzerofrom_derive-4b067c17090e937c.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `zerofrom-derive` (lib) due to 1 previous error
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcjoC6l9\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcjoC6l9\\symbols.o" "<10 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustcjoC6l9\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\zerovec_derive-3dde1d345ec2a866.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libzerovec_derive-3dde1d345ec2a866.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `zerovec-derive` (lib) due to 1 previous error
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc5kbHXZ\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc5kbHXZ\\symbols.o" "<16 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc5kbHXZ\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\thiserror_impl-fad992edc0e59a8f.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libthiserror_impl-fad992edc0e59a8f.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `thiserror-impl` (lib) due to 1 previous error
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc4fUeoH\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc4fUeoH\\symbols.o" "<16 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustc4fUeoH\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libheck-9c58bde1d748e2ca,libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\clap_derive-1ede79efbd4b9dce.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libclap_derive-1ede79efbd4b9dce.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `clap_derive` (lib) due to 1 previous error
+error: linking with `x86_64-w64-mingw32-gcc.cmd` failed: exit code: 1
+  |
+  = note: "x86_64-w64-mingw32-gcc.cmd" "-Wl,D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustco5QRR9\\list.def" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustco5QRR9\\symbols.o" "<16 object files omitted>" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\rustco5QRR9\\rmeta.o" "<1 object files omitted>" "-Wl,-Bstatic" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps/{libsyn-d9c28282e689aec8,libquote-d5f549f6264c2410,libproc_macro2-765f65bfafa60890,libunicode_ident-7982377e19d60980}.rlib" "<sysroot>\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib/{libproc_macro-*,librustc_literal_escaper-*,libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,libwindows_link-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lkernel32" "-lkernel32" "-lkernel32" "-lntdll" "-luserenv" "-lws2_32" "-ldbghelp" "-lgcc_eh" "-l:libpthread.a" "-lmsvcrt" "-lmingwex" "-lmingw32" "-lgcc" "-lmsvcrt" "-lmingwex" "-luser32" "-lkernel32" "-Wl,--nxcompat" "-o" "D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\serde_derive-a70f2cf6eee44580.dll" "-Wl,--gc-sections" "-shared" "-Wl,--out-implib=D:\\rust-portable-cross-src\\sample\\target\\release\\deps\\libserde_derive-a70f2cf6eee44580.dll.a" "-Wl,--strip-debug" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find dllcrt2.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtbegin.o: No such file or directory
+          D:/rust-portable-cross-src/tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained/ld.exe: cannot find crtend.o: No such file or directory
+          
+
+error: could not compile `serde_derive` (lib) due to 1 previous error

@@ -1,2 +1,2 @@
 @echo off
-"%~dp0..\zig\zig.exe" cc -target arm-linux-musleabihf %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0arm-linux-musleabihf-gcc.ps1" %*

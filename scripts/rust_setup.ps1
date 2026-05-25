@@ -567,9 +567,12 @@ function Invoke-RustToolkitSetup {
             "`$skipNext = `$false",
             "foreach (`$a in `$args) {",
             "    if (`$skipNext) { `$skipNext = `$false; continue }",
-            "    if (`$a -is [string] -and `$a.StartsWith('--target=')) { continue }",
-            "    if (`$a -eq '-target' -or `$a -eq '--target') { `$skipNext = `$true; continue }",
-            "    `$filtered.Add([string]`$a)",
+            "    `$arg = [string]`$a",
+            "    `$normalizedArg = `$arg.Trim('\"')",
+            "    if ((`$normalizedArg -match '--target') -and (`$normalizedArg -match 'armv7-unknown-linux-musleabihf')) { continue }",
+            "    if (`$normalizedArg -eq 'armv7-unknown-linux-musleabihf') { continue }",
+            "    if (`$normalizedArg -eq '-target' -or `$normalizedArg -eq '--target') { `$skipNext = `$true; continue }",
+            "    `$filtered.Add(`$arg)",
             "}",
             "",
             "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target `$zigTarget @filtered",
@@ -586,18 +589,19 @@ function Invoke-RustToolkitSetup {
     }
 
     # Windows GNU host wrapper: delegates to a PowerShell helper that filters
-    # linker flags unsupported by zig's LLD (e.g. --disable-auto-image-base).
+    # linker flags unsupported by the bundled host GCC linker invocation.
     $winPs1Path = Join-Path $wrappersRoot "x86_64-w64-mingw32-gcc.ps1"
     $winPs1Body = @(
-        "# Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering flags",
-        "# that rustc injects for x86_64-pc-windows-gnu but zig's LLD does not support.",
-        "# Also add Rust's bundled self-contained MinGW lib dir so host link does not",
+        "# Wrapper: forwards args to the bundled self-contained x86_64-w64-mingw32-gcc linker, filtering flags",
+        "# that rustc injects for x86_64-pc-windows-gnu but the bundled linker does not support.",
+        "# Also add Rust's bundled self-contained MinGW prefixes so host link does not",
         "# depend on any system GCC installation.",
         "`$unsupported = @(",
         "    '-Wl,--disable-auto-image-base',",
         "    '-Wl,-Bdynamic'",
         ")",
         "",
+        "`$selfContainedBinDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained`"))",
         "`$selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained`"))",
         "`$selfContainedGcc = [System.IO.Path]::GetFullPath((Join-Path `$PSScriptRoot `"..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained\x86_64-w64-mingw32-gcc.exe`"))",
         "`$filteredArgs = New-Object 'System.Collections.Generic.List[string]'",
@@ -633,7 +637,7 @@ function Invoke-RustToolkitSetup {
         "",
         "    # rustc uses ``-Wl,<path>\\list.def`` when linking proc-macro DLLs; zig's",
         "    # linker frontend rejects this form, so fallback to the bundled GCC linker.",
-        "    if (`$normalizedArg -match '^-Wl,.*[\\/]list\.def$') {",
+        "    if (`$normalizedArg -match 'list\.def$') {",
         "        `$requiresGccLinkFallback = `$true",
         "    }",
         "",
@@ -641,10 +645,10 @@ function Invoke-RustToolkitSetup {
         "}",
         "",
         "if (`$requiresGccLinkFallback) {",
-        "    & `$selfContainedGcc @filteredArgs",
+        "    & `$selfContainedGcc `"-B`$selfContainedBinDir`" `"-L`$selfContainedLibDir`" @filteredArgs",
         "}",
         "else {",
-        "    & `"`$PSScriptRoot\..\zig\zig.exe`" cc -target x86_64-windows-gnu -fuse-ld=ld @filteredArgs `"-L`$selfContainedLibDir`"",
+        "    & `$selfContainedGcc `"-B`$selfContainedBinDir`" `"-L`$selfContainedLibDir`" @filteredArgs",
         "}",
         "exit `$LASTEXITCODE"
     ) -join "`r`n"

@@ -1,2 +1,2 @@
 @echo off
-"%~dp0..\zig\zig.exe" cc -target aarch64-linux-musl %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0aarch64-linux-musl-gcc.ps1" %*

@@ -1,12 +1,13 @@
 # Wrapper: forwards args to zig cc (x86_64-windows-gnu), filtering flags
 # that rustc injects for x86_64-pc-windows-gnu but zig's LLD does not support.
-# Also add Rust's bundled self-contained MinGW lib dir so host link does not
+# Also add Rust's bundled self-contained MinGW prefixes so host link does not
 # depend on any system GCC installation.
 $unsupported = @(
     '-Wl,--disable-auto-image-base',
     '-Wl,-Bdynamic'
 )
 
+$selfContainedBinDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained"))
 $selfContainedLibDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\self-contained"))
 $selfContainedGcc = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained\x86_64-w64-mingw32-gcc.exe"))
 $filteredArgs = New-Object 'System.Collections.Generic.List[string]'
@@ -42,7 +43,7 @@ foreach ($a in $args) {
 
     # rustc uses `-Wl,<path>\\list.def` when linking proc-macro DLLs; zig's
     # linker frontend rejects this form, so fallback to the bundled GCC linker.
-    if ($normalizedArg -match '^-Wl,.*[\\/]list\.def$') {
+    if ($normalizedArg -match 'list\.def$') {
         $requiresGccLinkFallback = $true
     }
 
@@ -50,9 +51,9 @@ foreach ($a in $args) {
 }
 
 if ($requiresGccLinkFallback) {
-    & $selfContainedGcc @filteredArgs
+    & $selfContainedGcc "-B$selfContainedBinDir" "-L$selfContainedLibDir" @filteredArgs
 }
 else {
-    & "$PSScriptRoot\..\zig\zig.exe" cc -target x86_64-windows-gnu -fuse-ld=ld @filteredArgs "-L$selfContainedLibDir"
+    & $selfContainedGcc "-B$selfContainedBinDir" "-L$selfContainedLibDir" @filteredArgs
 }
 exit $LASTEXITCODE
