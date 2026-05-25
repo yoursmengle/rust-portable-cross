@@ -1,0 +1,7 @@
+cargo-home/
+downloads/
+rustup/
+rustup-home/
+zig/
+zig-global-cache/
+zig-local-cache/
