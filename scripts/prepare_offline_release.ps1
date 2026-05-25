@@ -223,6 +223,37 @@ function Copy-RelativeEntry {
     Copy-FileToDestination -SourcePath $sourcePath -DestinationPath $targetPath -RecordedFiles $RecordedFiles -InstallRelativePath $relativeInstallPath
 }
 
+function Copy-RelativeGlobEntries {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativeGlob,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationRoot,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [System.Collections.Generic.List[string]]$RecordedFiles
+    )
+
+    $normalizedGlob = $RelativeGlob.Replace("/", "\\")
+    $globPath = Join-Path $SourceRoot $normalizedGlob
+    $matchedFiles = @(Get-ChildItem -Path $globPath -File -ErrorAction SilentlyContinue)
+
+    if ($matchedFiles.Count -eq 0) {
+        throw "Required path pattern matched no files: $globPath"
+    }
+
+    foreach ($matchedFile in $matchedFiles) {
+        $installRelativePath = Get-RelativePath -BasePath $SourceRoot -ChildPath $matchedFile.FullName
+        $destinationPath = Join-Path $DestinationRoot ($installRelativePath.Replace("/", "\\"))
+        Copy-FileToDestination -SourcePath $matchedFile.FullName -DestinationPath $destinationPath -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
+    }
+}
+
 function Copy-HostToolchainCore {
     param(
         [Parameter(Mandatory = $true)]
@@ -391,6 +422,8 @@ function Invoke-PrepareOfflineRelease {
     )) {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }
+
+    Copy-RelativeGlobEntries -SourceRoot $paths.ToolkitRoot -RelativeGlob "tools/wrappers/zig*.*" -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
 
     Copy-HostToolchainCore -Paths $paths -RecordedFiles $coreFiles
 

@@ -66,6 +66,9 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_aarch64.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_armv7.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_aarch64.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_x64_win.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup\rustup.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\cargo.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\rustc.exe")
@@ -77,6 +80,12 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\aarch64-linux-musl-gcc.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\x86_64-w64-mingw32-gcc.cmd")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\x86_64-w64-mingw32-gcc.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-ar.cmd")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-ar.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.cmd")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.cmd")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\update-hashes\stable-x86_64-pc-windows-gnu")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\bin\rustc.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\std.rlib")
@@ -96,6 +105,8 @@ try {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\finalize_offline_install.ps1")) -Message "core payload should contain finalize_offline_install.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "docs\README-offline.md")) -Message "core payload should contain the customer README"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "Activate Rust Portable Cross.ps1")) -Message "core payload should contain the activation entry script"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ar.cmd")) -Message "core payload should contain zig wrapper cmd scripts"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-dlltool.ps1")) -Message "core payload should contain zig wrapper ps1 scripts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\std.rlib")) -Message "core payload should contain the host rustlib"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
@@ -110,6 +121,7 @@ try {
     Assert-Equal -Actual $layout.hostToolchain -Expected "stable-x86_64-pc-windows-gnu" -Message "layout should record the GNU host toolchain"
     Assert-Equal -Actual $layout.defaultComponents.Count -Expected 1 -Message "layout should keep a single default component"
     Assert-Equal -Actual $layout.defaultComponents[0] -Expected "armv7" -Message "layout should default to armv7"
+    Assert-True -Condition ($layout.componentFiles.core -contains "tools/wrappers/zig-ar.cmd") -Message "layout should record core zig wrapper files"
     Assert-True -Condition ($layout.componentFiles.armv7 -contains "scripts/rust_build_armv7.ps1") -Message "layout should record armv7-owned files"
     Assert-True -Condition ($layout.componentFiles.aarch64 -contains "scripts/rust_build_aarch64.ps1") -Message "layout should record aarch64-owned files"
     Assert-True -Condition ($layout.componentFiles.x64_win -contains "scripts/rust_build_x64_win.ps1") -Message "layout should record x64_win-owned files"
