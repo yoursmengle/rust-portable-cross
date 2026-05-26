@@ -140,6 +140,14 @@ Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `co
 
 Windows x64 native application development is out of scope for this toolkit. Use your system Rust toolchain (`rustup`, `cargo`, `rustc`) directly for `x86_64-pc-windows-msvc` or other native Windows targets.
 
+If you want to build `x86_64-pc-windows-gnu` without installing system Rust, use:
+
+```powershell
+.\scripts\rust_build_x64_win_native.ps1 -ProjectPath D:\path\to\your\project
+```
+
+This helper wires `rust-lld` and a repository-local Zig C compiler wrapper for crates that use `cc-rs`.
+
 ---
 
 ## Download Configuration

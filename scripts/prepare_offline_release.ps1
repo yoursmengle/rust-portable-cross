@@ -367,6 +367,7 @@ function Invoke-PrepareOfflineRelease {
     foreach ($requiredPath in @(
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\cargo.exe"),
@@ -402,6 +403,7 @@ function Invoke-PrepareOfflineRelease {
         "config",
         "scripts/rust_env.ps1",
         "scripts/finalize_offline_install.ps1",
+        "scripts/rust_build_x64_win_native.ps1",
         "sample/.cargo",
         "sample/.gitignore",
         "sample/Cargo.lock",
