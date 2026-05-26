@@ -38,8 +38,8 @@ Name: "custom"; Description: "自定义安装"; Flags: iscustom
 
 [Components]
 Name: "core"; Description: "核心工具包文件"; Types: default custom; Flags: fixed
-Name: "armv7"; Description: "ARMv7 Linux 交叉编译支持"; Types: default custom
-Name: "aarch64"; Description: "AArch64 Linux 交叉编译支持"; Types: custom
+Name: "armv7"; Description: "ARMv7 Linux 工具(HEC1020/HEC1030)"; Types: default custom
+Name: "aarch64"; Description: "AArch64 Linux 工具(HEC2020/HEC3000/HEC3016)"; Types: custom
 
 [Dirs]
 Name: "{app}\tools\cargo-home\registry"
