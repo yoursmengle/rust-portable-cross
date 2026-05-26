@@ -31,16 +31,8 @@ function Sync-CargoConfig {
     New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
 
     if (Test-Path -LiteralPath $Destination -PathType Leaf) {
-        $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
-        $destinationHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
-        if ($sourceHash -eq $destinationHash) {
-            Write-Host "Cargo config already up to date: $Destination"
-            return
-        }
-
-        $backupPath = "$Destination.rust-portable-cross.bak"
-        Copy-Item -LiteralPath $Destination -Destination $backupPath -Force
-        Write-Host "Existing Cargo config backed up: $backupPath"
+        Write-Host "Detected existing project Cargo config, keep unchanged: $Destination"
+        return
     }
     elseif (Test-Path -LiteralPath $Destination) {
         throw "Cargo config path exists but is not a file: $Destination"
