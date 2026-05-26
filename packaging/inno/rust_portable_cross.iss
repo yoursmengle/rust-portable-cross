@@ -40,7 +40,6 @@ Name: "custom"; Description: "自定义安装"; Flags: iscustom
 Name: "core"; Description: "核心工具包文件"; Types: default custom; Flags: fixed
 Name: "armv7"; Description: "ARMv7 Linux 交叉编译支持"; Types: default custom
 Name: "aarch64"; Description: "AArch64 Linux 交叉编译支持"; Types: custom
-Name: "x64_win"; Description: "Windows x64 原生编译支持"; Types: custom
 
 [Dirs]
 Name: "{app}\tools\cargo-home\registry"
@@ -52,7 +51,6 @@ Name: "{app}\tools\zig-global-cache"
 Source: "{#StageRoot}\core\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageRoot}\targets\armv7\*"; DestDir: "{app}"; Components: armv7; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageRoot}\targets\aarch64\*"; DestDir: "{app}"; Components: aarch64; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#StageRoot}\targets\x64_win\*"; DestDir: "{app}"; Components: x64_win; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\激活 Rust 便携交叉编译环境 (PowerShell)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -File ""{app}\Activate Rust Portable Cross.ps1"""
@@ -230,9 +228,6 @@ begin
 
   if WizardIsComponentSelected('aarch64') then
     Value := Value + 'aarch64,';
-
-  if WizardIsComponentSelected('x64_win') then
-    Value := Value + 'x64_win,';
 
   if (Length(Value) > 0) and (Value[Length(Value)] = ',') then
     Delete(Value, Length(Value), 1);

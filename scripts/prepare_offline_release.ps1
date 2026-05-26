@@ -38,15 +38,6 @@ $script:TargetDefinitions = [ordered]@{
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
         )
     }
-    x64_win = @{
-        Triple = $script:HostTriple
-        RustComponent = $null
-        BuildScripts = @("scripts/rust_build_x64_win.ps1")
-        FilePaths = @(
-            "tools/wrappers/x86_64-w64-mingw32-gcc.cmd",
-            "tools/wrappers/x86_64-w64-mingw32-gcc.ps1"
-        )
-    }
 }
 
 function Write-Step {
@@ -378,7 +369,6 @@ function Invoke-PrepareOfflineRelease {
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
-        (Join-Path $paths.ToolkitRoot "check_tool_x64_win.ps1"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\cargo.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustc.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"),
@@ -419,7 +409,6 @@ function Invoke-PrepareOfflineRelease {
         "sample/src",
         "check_tool_armv7.ps1",
         "check_tool_aarch64.ps1",
-        "check_tool_x64_win.ps1",
         "tools/rustup",
         "tools/cargo-home/bin",
         "tools/zig",
@@ -428,7 +417,14 @@ function Invoke-PrepareOfflineRelease {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }
 
-    Copy-RelativeGlobEntries -SourceRoot $paths.ToolkitRoot -RelativeGlob "tools/wrappers/zig*.*" -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
+    foreach ($relativePath in @(
+        "tools/wrappers/zig-ar.cmd",
+        "tools/wrappers/zig-ar.ps1",
+        "tools/wrappers/zig-ranlib.cmd",
+        "tools/wrappers/zig-ranlib.ps1"
+    )) {
+        Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
+    }
 
     Copy-HostToolchainCore -Paths $paths -RecordedFiles $coreFiles
 

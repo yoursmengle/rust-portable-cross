@@ -8,7 +8,6 @@ Supported cross-compilation targets:
 |---|---|
 | `armv7-unknown-linux-musleabihf` | ARMv7 Linux (musl libc, hard-float) |
 | `aarch64-unknown-linux-musl` | AArch64 / ARM64 Linux (musl libc) |
-| `x86_64-pc-windows-gnu` | Windows x64 (host, native) |
 
 Target builds are powered by [Zig](https://ziglang.org/) acting as the C linker, eliminating the need for host-installed GCC/Clang cross-toolchains.
 
@@ -133,11 +132,13 @@ Must be **dot-sourced** so that environment variables are set in the calling ses
 . .\scripts\rust_env.ps1
 ```
 
-Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_x86_64_pc_windows_gnu`, `CC_armv7_*`, `CC_aarch64_*`, and updates `PATH`.
+Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, and updates `PATH`.
 
-### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1` / `rust_build_x64_win.ps1`
+### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1`
 
 Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`.
+
+Windows x64 native application development is out of scope for this toolkit. Use your system Rust toolchain (`rustup`, `cargo`, `rustc`) directly for `x86_64-pc-windows-msvc` or other native Windows targets.
 
 ---
 

@@ -9,7 +9,6 @@ This installer deploys a prebuilt offline Rust toolchain for Windows.
 - You can choose support for:
   - `armv7`
   - `aarch64`
-  - `x64_win`
 - `armv7` is selected by default.
 - Only the selected target payloads are installed.
 
@@ -36,12 +35,12 @@ Run the build scripts from inside your Rust project directory:
 
 - `.\scripts\rust_build_armv7.ps1`
 - `.\scripts\rust_build_aarch64.ps1`
-- `.\scripts\rust_build_x64_win.ps1`
 
 If a target was not selected during installation, its build script or wrapper files may be absent.
 
 ## Notes
 
 - Windows host support uses `x86_64-pc-windows-gnu`.
-- Target builds use Zig-based wrapper scripts, including `x64_win` when installed.
+- This toolkit only provides Linux cross-target wrappers.
+- For Windows x64 native applications, use your system Rust toolchain directly (for example `x86_64-pc-windows-msvc`).
 - This installer does not make arbitrary third-party crate downloads offline. If your project depends on crates that are not already available in your environment, dependency fetching remains your responsibility.

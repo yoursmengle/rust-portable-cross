@@ -79,16 +79,11 @@ try {
                 triple = "aarch64-unknown-linux-musl"
                 rustComponent = "rust-std-aarch64-unknown-linux-musl"
             }
-            x64_win = @{
-                triple = "x86_64-pc-windows-gnu"
-                rustComponent = $null
-            }
         }
         componentFiles = [ordered]@{
             core = @("tools/cargo-home/bin/cargo.exe")
             armv7 = @("scripts/rust_build_armv7.ps1")
             aarch64 = @("scripts/rust_build_aarch64.ps1")
-            x64_win = @("scripts/rust_build_x64_win.ps1")
         }
     }
 
@@ -97,9 +92,8 @@ try {
     New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\placeholder.txt")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_aarch64.ps1")
-    New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_x64_win.ps1")
 
-    Invoke-FinalizeOfflineInstall -InstallRoot $tempRoot -SelectedComponents "armv7,x64_win" -InstallScope "perUser"
+    Invoke-FinalizeOfflineInstall -InstallRoot $tempRoot -SelectedComponents "armv7" -InstallScope "perUser"
 
     $settingsContent = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\settings.toml") -Raw
     Assert-True -Condition ($settingsContent -match 'default_toolchain = "stable-x86_64-pc-windows-gnu"') -Message "finalize should write GNU rustup settings"
@@ -112,7 +106,7 @@ try {
     Assert-Equal -Actual $manifest.installScope -Expected "perUser" -Message "install scope should be recorded in the install manifest"
     Assert-True -Condition ($manifest.installedComponents -contains "core") -Message "core should always be recorded as installed"
     Assert-True -Condition ($manifest.installedComponents -contains "armv7") -Message "selected armv7 component should be recorded"
-    Assert-True -Condition ($manifest.installedComponents -contains "x64_win") -Message "selected x64_win component should be recorded"
+    Assert-True -Condition (-not ($manifest.installedComponents -contains "x64_win")) -Message "removed x64_win component should not be recorded"
 
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $tempRoot "scripts\rust_build_aarch64.ps1"))) -Message "finalize should remove files for deselected components"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $tempRoot "scripts\rust_build_armv7.ps1")) -Message "selected component files should remain installed"
