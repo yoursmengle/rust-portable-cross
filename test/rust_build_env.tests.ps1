@@ -55,8 +55,8 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match "Remove-EnvVarIfPresent\s+-Name\s+`"CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER`"") `
         -Message "$ScriptPath should remove stale Windows GNU host linker env before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "Remove-EnvVarIfPresent\s+-Name\s+`"CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS`"") `
-        -Message "$ScriptPath should remove stale Windows GNU host rustflags env before cargo build."
+        -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = `"-C link-self-contained=yes`""))) `
+        -Message "$ScriptPath should force Windows GNU host build scripts to use the portable self-contained CRT before cargo build."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot

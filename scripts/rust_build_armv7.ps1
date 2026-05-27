@@ -127,7 +127,7 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 Remove-EnvVarIfPresent -Name "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
-Remove-EnvVarIfPresent -Name "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = "-C link-self-contained=yes"
 
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "arm-linux-musleabihf-gcc.cmd"
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS = "-C link-self-contained=no"
