@@ -618,6 +618,21 @@ function Invoke-RustToolkitSetup {
     ) -join "`r`n"
     Set-Content -LiteralPath $zigRanlibCmdPath -Value $zigRanlibCmdBody -Encoding ASCII
 
+    $zigDlltoolPs1Path = Join-Path $wrappersRoot "zig-dlltool.ps1"
+    $zigDlltoolPs1Body = @(
+        "# Wrapper: forwards args to ``zig dlltool`` for Windows GNU import library generation.",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" dlltool @args",
+        "exit `$LASTEXITCODE"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigDlltoolPs1Path -Value $zigDlltoolPs1Body -Encoding ASCII
+
+    $zigDlltoolCmdPath = Join-Path $wrappersRoot "zig-dlltool.cmd"
+    $zigDlltoolCmdBody = @(
+        "@echo off",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-dlltool.ps1`" %*"
+    ) -join "`r`n"
+    Set-Content -LiteralPath $zigDlltoolCmdPath -Value $zigDlltoolCmdBody -Encoding ASCII
+
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()
     $rustcVersion = (@(Get-NativeOutput -FilePath $rustcExe -Arguments @("-V")))[0].ToString().Trim()

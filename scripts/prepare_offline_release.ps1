@@ -425,7 +425,9 @@ function Invoke-PrepareOfflineRelease {
         "tools/wrappers/zig-ar.cmd",
         "tools/wrappers/zig-ar.ps1",
         "tools/wrappers/zig-ranlib.cmd",
-        "tools/wrappers/zig-ranlib.ps1"
+        "tools/wrappers/zig-ranlib.ps1",
+        "tools/wrappers/zig-dlltool.cmd",
+        "tools/wrappers/zig-dlltool.ps1"
     )) {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }

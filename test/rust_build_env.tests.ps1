@@ -52,6 +52,9 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("`$env:$LinkerEnvName")) `
         -Message "$ScriptPath should clear stale target environment before setting $LinkerEnvName."
     Assert-True `
+        -Condition ($beforeCargoBuild -match 'Ensure-ZigDlltoolWrapper\s+-WrappersRoot') `
+        -Message "$ScriptPath should ensure the Zig dlltool wrapper before cargo build."
+    Assert-True `
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
@@ -86,6 +89,25 @@ function Assert-X64WinEnvBeforeCargoBuild {
     Assert-True -Condition ($cargoBuildIndex -gt 0) -Message "$ScriptPath should invoke cargo build."
 
     $beforeCargoBuild = $body.Substring(0, $cargoBuildIndex)
+    $projectResolveCall = '$resolvedProjectPath = Resolve-ProjectPath -Path $ProjectPath'
+    $projectResolveIndex = $body.IndexOf($projectResolveCall)
+    $cargoTomlCheckIndex = $body.IndexOf('Cargo.toml')
+
+    Assert-True `
+        -Condition ($body -match 'function Resolve-ProjectPath') `
+        -Message "$ScriptPath should define a PowerShell-aware project path resolver."
+    Assert-True `
+        -Condition ($body -match 'GetUnresolvedProviderPathFromPSPath') `
+        -Message "$ScriptPath should resolve relative project paths through the PowerShell session path."
+    Assert-True `
+        -Condition ($body -notmatch '\[System\.IO\.Path\]::GetFullPath\(\$ProjectPath\)') `
+        -Message "$ScriptPath should not resolve ProjectPath through the .NET process current directory."
+    Assert-True `
+        -Condition ($projectResolveIndex -gt 0) `
+        -Message "$ScriptPath should resolve ProjectPath through Resolve-ProjectPath."
+    Assert-True `
+        -Condition ($projectResolveIndex -lt $cargoTomlCheckIndex) `
+        -Message "$ScriptPath should resolve ProjectPath before checking Cargo.toml."
     Assert-True `
         -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
         -Message "$ScriptPath should set the x64 Windows GNU linker before cargo build."
@@ -98,6 +120,9 @@ function Assert-X64WinEnvBeforeCargoBuild {
     Assert-True `
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER')) `
         -Message "$ScriptPath should clear stale target environment before setting the x64 Windows GNU linker."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match 'Ensure-ZigDlltoolWrapper\s+-WrappersRoot') `
+        -Message "$ScriptPath should ensure the Zig dlltool wrapper before cargo build."
     Assert-True `
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
@@ -120,6 +145,12 @@ Assert-True -Condition (Test-Path -LiteralPath $isolationHelper -PathType Leaf) 
 Assert-True `
     -Condition ($isolationHelperBody -match 'Remove-Item\s+-LiteralPath\s+"Env:\$name"') `
     -Message "Build isolation helper should remove env vars instead of leaving empty-string values."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'function Ensure-ZigDlltoolWrapper') `
+    -Message "Build isolation helper should provide a Zig dlltool wrapper generator."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'ZigSubcommand "dlltool"') `
+    -Message "Build isolation helper should forward zig-dlltool to zig dlltool."
 foreach ($envName in @(
     "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER",
     "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",

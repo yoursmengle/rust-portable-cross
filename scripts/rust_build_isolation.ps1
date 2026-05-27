@@ -64,6 +64,58 @@ function Add-RustBuildFlagIfMissing {
     return "$Existing $Flag"
 }
 
+function New-ZigToolWrapperIfMissing {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WrappersRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ToolName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ZigSubcommand,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    if (-not (Test-Path -LiteralPath $WrappersRoot -PathType Container)) {
+        New-Item -ItemType Directory -Path $WrappersRoot -Force | Out-Null
+    }
+
+    $ps1Path = Join-Path $WrappersRoot "$ToolName.ps1"
+    if (-not (Test-Path -LiteralPath $ps1Path -PathType Leaf)) {
+        $ps1Body = @(
+            "# Wrapper: forwards args to ``zig $ZigSubcommand`` $Description.",
+            "& `"`$PSScriptRoot\..\zig\zig.exe`" $ZigSubcommand @args",
+            "exit `$LASTEXITCODE"
+        ) -join "`r`n"
+        Set-Content -LiteralPath $ps1Path -Value $ps1Body -Encoding ASCII
+    }
+
+    $cmdPath = Join-Path $WrappersRoot "$ToolName.cmd"
+    if (-not (Test-Path -LiteralPath $cmdPath -PathType Leaf)) {
+        $cmdBody = @(
+            "@echo off",
+            "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$ToolName.ps1`" %*"
+        ) -join "`r`n"
+        Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
+    }
+}
+
+function Ensure-ZigDlltoolWrapper {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WrappersRoot
+    )
+
+    New-ZigToolWrapperIfMissing `
+        -WrappersRoot $WrappersRoot `
+        -ToolName "zig-dlltool" `
+        -ZigSubcommand "dlltool" `
+        -Description "for Windows GNU import library generation"
+}
+
 function Clear-RustBuildEnvironment {
     foreach ($name in @($script:RustBuildIsolatedEnvironmentNames)) {
         Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue

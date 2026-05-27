@@ -36,6 +36,22 @@ function Add-RustFlagIfMissing {
     return "$Existing $Flag"
 }
 
+function Resolve-ProjectPath {
+    param(
+        [AllowEmptyString()]
+        [string]$Path = "."
+    )
+
+    $candidate = if ([string]::IsNullOrWhiteSpace($Path)) { "." } else { $Path }
+
+    try {
+        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($candidate)
+    }
+    catch {
+        throw "Unable to resolve project path '$candidate': $($_.Exception.Message)"
+    }
+}
+
 $toolkitRoot = Split-Path -Parent $PSScriptRoot
 $toolsRoot = Join-Path $toolkitRoot "tools"
 $cargoHome = Join-Path $toolsRoot "cargo-home"
@@ -55,7 +71,7 @@ foreach ($requiredPath in @($cargoExe, $rustcExe, $rustupExe, $zigExe, $rustSelf
     }
 }
 
-$resolvedProjectPath = [System.IO.Path]::GetFullPath($ProjectPath)
+$resolvedProjectPath = Resolve-ProjectPath -Path $ProjectPath
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedProjectPath "Cargo.toml") -PathType Leaf)) {
     throw "Cargo.toml not found under $resolvedProjectPath"
 }
@@ -71,6 +87,7 @@ try {
 Clear-RustBuildEnvironment
 
 New-DirectoryIfMissing -Path $wrappersRoot
+Ensure-ZigDlltoolWrapper -WrappersRoot $wrappersRoot
 
 $nativeWrapperRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rust-portable-cross-x64-native-wrapper"
 New-DirectoryIfMissing -Path $nativeWrapperRoot

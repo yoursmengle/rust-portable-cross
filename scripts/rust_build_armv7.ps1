@@ -121,24 +121,26 @@ $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
 try {
 Clear-RustBuildEnvironment
 
-$wrapperPath = Join-Path $toolkitRoot "tools\wrappers\arm-linux-musleabihf-gcc.cmd"
+$wrappersRoot = Join-Path $toolkitRoot "tools\wrappers"
+$wrapperPath = Join-Path $wrappersRoot "arm-linux-musleabihf-gcc.cmd"
 if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "ARMv7 support is not installed. Missing wrapper: $wrapperPath"
 }
 
-$zigArPath = Join-Path $toolkitRoot "tools\wrappers\zig-ar.cmd"
-$zigRanlibPath = Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.cmd"
+$zigArPath = Join-Path $wrappersRoot "zig-ar.cmd"
+$zigRanlibPath = Join-Path $wrappersRoot "zig-ranlib.cmd"
 if (-not (Test-Path -LiteralPath $zigArPath)) {
     throw "Missing archive wrapper: $zigArPath"
 }
 if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
     throw "Missing ranlib wrapper: $zigRanlibPath"
 }
+Ensure-ZigDlltoolWrapper -WrappersRoot $wrappersRoot
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"
 $hostRustflags = "-C link-self-contained=yes"
-if (Test-Path -LiteralPath (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.cmd")) {
+if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-dlltool.cmd")) {
     $env:DLLTOOL_x86_64_pc_windows_gnu = "zig-dlltool.cmd"
     Set-Item -Path "Env:DLLTOOL_x86_64-pc-windows-gnu" -Value "zig-dlltool.cmd"
     $hostRustflags = Add-RustBuildFlagIfMissing -Existing $hostRustflags -Flag "-C dlltool=zig-dlltool.cmd"
