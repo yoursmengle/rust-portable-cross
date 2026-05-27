@@ -18,6 +18,24 @@ function New-DirectoryIfMissing {
     }
 }
 
+function Add-RustFlagIfMissing {
+    param(
+        [AllowEmptyString()]
+        [string]$Existing,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Flag
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Existing)) {
+        return $Flag
+    }
+    if ($Existing -match [regex]::Escape($Flag)) {
+        return $Existing
+    }
+    return "$Existing $Flag"
+}
+
 $toolkitRoot = Split-Path -Parent $PSScriptRoot
 $toolsRoot = Join-Path $toolkitRoot "tools"
 $cargoHome = Join-Path $toolsRoot "cargo-home"
@@ -101,6 +119,9 @@ $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:PATH = "$nativeWrapperRoot;$PSScriptRoot;$wrappersRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$rustSelfContainedBin;$env:PATH"
 
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = Add-RustFlagIfMissing `
+    -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS `
+    -Flag "-C link-self-contained=yes"
 $env:CC = "x64-windows-gnu-zig-cc.cmd"
 $env:HOST_CC = "x64-windows-gnu-zig-cc.cmd"
 $env:CC_x86_64_pc_windows_gnu = "x64-windows-gnu-zig-cc.cmd"
@@ -124,12 +145,9 @@ if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-dlltool.cmd")) {
     Set-Item -Path "Env:DLLTOOL_x86_64-pc-windows-gnu" -Value "zig-dlltool.cmd"
 
     $dlltoolRustflags = "-C dlltool=zig-dlltool.cmd"
-    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS)) {
-        $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = $dlltoolRustflags
-    }
-    elseif ($env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS -notmatch [regex]::Escape("dlltool=zig-dlltool.cmd")) {
-        $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = "$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS $dlltoolRustflags"
-    }
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = Add-RustFlagIfMissing `
+        -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS `
+        -Flag $dlltoolRustflags
 }
 
 $buildProfile = if ($DebugBuild) { "debug" } else { "release" }

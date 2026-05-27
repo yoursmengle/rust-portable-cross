@@ -59,6 +59,32 @@ function Assert-EnvBeforeCargoBuild {
         -Message "$ScriptPath should force Windows GNU host build scripts to use the portable self-contained CRT before cargo build."
 }
 
+function Assert-X64WinEnvBeforeCargoBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath
+    )
+
+    $body = Get-Content -LiteralPath $ScriptPath -Raw -Encoding UTF8
+    $cargoBuildIndex = $body.IndexOf("cargo build")
+
+    Assert-True -Condition ($cargoBuildIndex -gt 0) -Message "$ScriptPath should invoke cargo build."
+
+    $beforeCargoBuild = $body.Substring(0, $cargoBuildIndex)
+    Assert-True `
+        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
+        -Message "$ScriptPath should set the x64 Windows GNU linker before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match "link-self-contained=yes") `
+        -Message "$ScriptPath should force the x64 Windows GNU target to use portable self-contained CRT before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match "dlltool=zig-dlltool\.cmd") `
+        -Message "$ScriptPath should keep the zig dlltool rustflag for windows-targets before cargo build."
+    Assert-True `
+        -Condition ($body -match "cargo build --release --target x86_64-pc-windows-gnu") `
+        -Message "$ScriptPath should build the approved x86_64-pc-windows-gnu target."
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 Assert-EnvBeforeCargoBuild `
@@ -72,5 +98,8 @@ Assert-EnvBeforeCargoBuild `
     -LinkerEnvName "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER" `
     -LinkerValue "aarch64-linux-musl-gcc.cmd" `
     -RustflagsEnvName "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
+
+Assert-X64WinEnvBeforeCargoBuild `
+    -ScriptPath (Join-Path $repoRoot "scripts\rust_build_x64_win_native.ps1")
 
 Write-Host "rust_build_env tests passed."
