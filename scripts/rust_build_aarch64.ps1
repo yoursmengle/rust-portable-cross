@@ -41,6 +41,76 @@ function Sync-CargoConfig {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
+function Test-CargoHostTargetSectionName {
+    param([AllowEmptyString()][string]$SectionName)
+
+    $name = ([string]$SectionName).Trim()
+    return ($name -match "^(?i)target\.(['""]?)x86_64-pc-windows-gnu\1$")
+}
+
+function Repair-CargoHostTargetConfigFile {
+    param([AllowEmptyString()][string]$ConfigPath)
+
+    if ([string]::IsNullOrWhiteSpace($ConfigPath) -or -not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        return
+    }
+
+    $lines = @(Get-Content -LiteralPath $ConfigPath -Encoding UTF8)
+    $kept = New-Object System.Collections.Generic.List[string]
+    $insideRemovedSection = $false
+    $removed = $false
+
+    foreach ($line in $lines) {
+        if ([string]$line -match '^\s*\[([^\]]+)\]\s*(?:#.*)?$') {
+            $insideRemovedSection = Test-CargoHostTargetSectionName -SectionName $Matches[1]
+            if ($insideRemovedSection) {
+                $removed = $true
+                continue
+            }
+        }
+
+        if ($insideRemovedSection) {
+            continue
+        }
+
+        $kept.Add([string]$line) | Out-Null
+    }
+
+    if ($removed) {
+        Set-Content -LiteralPath $ConfigPath -Value $kept.ToArray() -Encoding UTF8
+        Write-Host "Removed Windows GNU host Cargo target config: $ConfigPath"
+    }
+}
+
+function Repair-CargoHostTargetConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolkitRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $ToolkitRoot "config\.cargo\config.toml")
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:CARGO_HOME)) {
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config.toml")
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config")
+    }
+
+    $projectCargoDir = Join-Path $ProjectRoot ".cargo"
+    Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $projectCargoDir "config.toml")
+    Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $projectCargoDir "config")
+}
+
+function Remove-EnvVarIfPresent {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    if (Test-Path -LiteralPath "Env:$Name") {
+        Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue
+    }
+}
+
 $wrapperPath = Join-Path $toolkitRoot "tools\wrappers\aarch64-linux-musl-gcc.cmd"
 if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "AArch64 support is not installed. Missing wrapper: $wrapperPath"
@@ -55,6 +125,12 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
     throw "Missing ranlib wrapper: $zigRanlibPath"
 }
 
+Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
+Remove-EnvVarIfPresent -Name "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
+Remove-EnvVarIfPresent -Name "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS"
+
+$env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "aarch64-linux-musl-gcc.cmd"
+$env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS = "-C link-self-contained=no"
 $env:CC_aarch64_unknown_linux_musl = "aarch64-linux-musl-gcc.cmd"
 $env:AR_aarch64_unknown_linux_musl = "zig-ar.cmd"
 $env:RANLIB_aarch64_unknown_linux_musl = "zig-ranlib.cmd"
