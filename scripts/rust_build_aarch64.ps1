@@ -18,6 +18,12 @@ if (-not (Test-Path -LiteralPath $configSource)) {
     throw "Missing toolkit Cargo config at $configSource"
 }
 
+$isolationScript = Join-Path $PSScriptRoot "rust_build_isolation.ps1"
+if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
+    throw "Missing build isolation helper: $isolationScript"
+}
+. $isolationScript
+
 function Sync-CargoConfig {
     param(
         [Parameter(Mandatory = $true)]
@@ -111,6 +117,10 @@ function Remove-EnvVarIfPresent {
     }
 }
 
+$rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+try {
+Clear-RustBuildEnvironment
+
 $wrapperPath = Join-Path $toolkitRoot "tools\wrappers\aarch64-linux-musl-gcc.cmd"
 if (-not (Test-Path -LiteralPath $wrapperPath)) {
     throw "AArch64 support is not installed. Missing wrapper: $wrapperPath"
@@ -126,8 +136,14 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 }
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
-Remove-EnvVarIfPresent -Name "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = "-C link-self-contained=yes"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"
+$hostRustflags = "-C link-self-contained=yes"
+if (Test-Path -LiteralPath (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.cmd")) {
+    $env:DLLTOOL_x86_64_pc_windows_gnu = "zig-dlltool.cmd"
+    Set-Item -Path "Env:DLLTOOL_x86_64-pc-windows-gnu" -Value "zig-dlltool.cmd"
+    $hostRustflags = Add-RustBuildFlagIfMissing -Existing $hostRustflags -Flag "-C dlltool=zig-dlltool.cmd"
+}
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = $hostRustflags
 
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "aarch64-linux-musl-gcc.cmd"
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS = "-C link-self-contained=no"
@@ -146,3 +162,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Build output: $(Join-Path (Get-Location) 'target\aarch64-unknown-linux-musl\release')"
+}
+finally {
+    Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
+}

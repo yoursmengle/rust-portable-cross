@@ -43,6 +43,18 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:$LinkerEnvName = `"$LinkerValue`""))) `
         -Message "$ScriptPath should set $LinkerEnvName before cargo build."
     Assert-True `
+        -Condition ($beforeCargoBuild -match "rust_build_isolation\.ps1") `
+        -Message "$ScriptPath should load the target environment isolation helper before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
+        -Message "$ScriptPath should clear stale target environment before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("`$env:$LinkerEnvName")) `
+        -Message "$ScriptPath should clear stale target environment before setting $LinkerEnvName."
+    Assert-True `
+        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Message "$ScriptPath should restore target environment in a finally block."
+    Assert-True `
         -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:$RustflagsEnvName = `"-C link-self-contained=no`""))) `
         -Message "$ScriptPath should set $RustflagsEnvName before cargo build."
     Assert-True `
@@ -50,13 +62,16 @@ function Assert-EnvBeforeCargoBuild {
         -Message "$ScriptPath should sanitize Cargo config files before cargo build."
     Assert-True `
         -Condition ($beforeCargoBuild -match "x86_64-pc-windows-gnu") `
-        -Message "$ScriptPath should explicitly identify the Windows GNU host target config to remove."
+        -Message "$ScriptPath should explicitly identify the Windows GNU host target."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "Remove-EnvVarIfPresent\s+-Name\s+`"CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER`"") `
-        -Message "$ScriptPath should remove stale Windows GNU host linker env before cargo build."
+        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
+        -Message "$ScriptPath should force Windows GNU host build scripts to use rust-lld before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = `"-C link-self-contained=yes`""))) `
+        -Condition ($beforeCargoBuild -match "link-self-contained=yes") `
         -Message "$ScriptPath should force Windows GNU host build scripts to use the portable self-contained CRT before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match "dlltool=zig-dlltool\.cmd") `
+        -Message "$ScriptPath should keep the zig dlltool rustflag available for Windows GNU host build scripts."
 }
 
 function Assert-X64WinEnvBeforeCargoBuild {
@@ -75,6 +90,18 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
         -Message "$ScriptPath should set the x64 Windows GNU linker before cargo build."
     Assert-True `
+        -Condition ($beforeCargoBuild -match "rust_build_isolation\.ps1") `
+        -Message "$ScriptPath should load the target environment isolation helper before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
+        -Message "$ScriptPath should clear stale target environment before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER')) `
+        -Message "$ScriptPath should clear stale target environment before setting the x64 Windows GNU linker."
+    Assert-True `
+        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Message "$ScriptPath should restore target environment in a finally block."
+    Assert-True `
         -Condition ($beforeCargoBuild -match "link-self-contained=yes") `
         -Message "$ScriptPath should force the x64 Windows GNU target to use portable self-contained CRT before cargo build."
     Assert-True `
@@ -86,6 +113,25 @@ function Assert-X64WinEnvBeforeCargoBuild {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$isolationHelper = Join-Path $repoRoot "scripts\rust_build_isolation.ps1"
+$isolationHelperBody = Get-Content -LiteralPath $isolationHelper -Raw -Encoding UTF8
+
+Assert-True -Condition (Test-Path -LiteralPath $isolationHelper -PathType Leaf) -Message "Build isolation helper should exist."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'Remove-Item\s+-LiteralPath\s+"Env:\$name"') `
+    -Message "Build isolation helper should remove env vars instead of leaving empty-string values."
+foreach ($envName in @(
+    "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER",
+    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
+    "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER",
+    "CC_armv7-unknown-linux-musleabihf",
+    "CC_aarch64-unknown-linux-musl",
+    "CC_x86_64-pc-windows-gnu"
+)) {
+    Assert-True `
+        -Condition ($isolationHelperBody -match [regex]::Escape($envName)) `
+        -Message "Build isolation helper should isolate $envName."
+}
 
 Assert-EnvBeforeCargoBuild `
     -ScriptPath (Join-Path $repoRoot "scripts\rust_build_armv7.ps1") `

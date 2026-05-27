@@ -60,6 +60,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $resolvedProjectPath "Cargo.toml") -
     throw "Cargo.toml not found under $resolvedProjectPath"
 }
 
+$isolationScript = Join-Path $PSScriptRoot "rust_build_isolation.ps1"
+if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
+    throw "Missing build isolation helper: $isolationScript"
+}
+. $isolationScript
+
+$rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+try {
+Clear-RustBuildEnvironment
+
 New-DirectoryIfMissing -Path $wrappersRoot
 
 $nativeWrapperRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rust-portable-cross-x64-native-wrapper"
@@ -169,4 +179,8 @@ try {
 }
 finally {
     Pop-Location
+}
+}
+finally {
+    Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
 }

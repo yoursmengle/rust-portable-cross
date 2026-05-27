@@ -68,6 +68,7 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "sample\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "sample\target\release\sample.exe") -Content "do not stage"
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win_native.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_armv7.ps1")
@@ -103,6 +104,7 @@ try {
     $targetsRoot = Join-Path $distRoot "staging\targets"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_isolation.ps1")) -Message "core payload should contain rust_build_isolation.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\finalize_offline_install.ps1")) -Message "core payload should contain finalize_offline_install.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_x64_win_native.ps1")) -Message "core payload should contain the native x64 helper script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "docs\README-offline.md")) -Message "core payload should contain the customer README"
@@ -132,6 +134,7 @@ try {
     Assert-Equal -Actual $layout.defaultComponents.Count -Expected 1 -Message "layout should keep a single default component"
     Assert-Equal -Actual $layout.defaultComponents[0] -Expected "armv7" -Message "layout should default to armv7"
     Assert-True -Condition ($layout.componentFiles.core -contains "tools/wrappers/zig-ar.cmd") -Message "layout should record core zig wrapper files"
+    Assert-True -Condition ($layout.componentFiles.core -contains "scripts/rust_build_isolation.ps1") -Message "layout should record the build isolation helper"
     Assert-True -Condition ($layout.componentFiles.core -contains "scripts/rust_build_x64_win_native.ps1") -Message "layout should record the native x64 helper script"
     Assert-True -Condition ($layout.componentFiles.core -contains "sample/Cargo.toml") -Message "layout should record sample files"
     Assert-True -Condition (-not ($layout.componentFiles.core -contains "sample/target/release/sample.exe")) -Message "layout should not record sample build artifacts"
