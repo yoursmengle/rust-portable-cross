@@ -75,6 +75,7 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_aarch64.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_armv7.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_aarch64.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_x64_win.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup\rustup.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\cargo.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\rustc.exe")
