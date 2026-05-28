@@ -4,6 +4,9 @@ param(
     [switch]$DebugBuild
 )
 
+$env:RUSTUP_DIST_SERVER="https://mirrors.tuna.tsinghua.edu.cn/rustup"
+$env:RUSTUP_UPDATE_ROOT="https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup"
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
