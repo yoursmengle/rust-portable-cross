@@ -439,12 +439,12 @@ function Invoke-RustToolkitSetup {
         -Label "rustup-init.exe"
 
     if (-not (Test-Path -LiteralPath $rustupCmd)) {
-        Write-Step "Installing stable-x86_64-pc-windows-gnu into repository-local homes"
+        Write-Step "Installing stable-x86_64-pc-windows-msvc into repository-local homes"
         Invoke-Native -FilePath $rustupExe -Arguments @(
             "-y",
             "--profile", "minimal",
             "--no-modify-path",
-            "--default-toolchain", "stable-x86_64-pc-windows-gnu"
+            "--default-toolchain", "stable-x86_64-pc-windows-msvc"
         )
     }
     else {
@@ -455,15 +455,15 @@ function Invoke-RustToolkitSetup {
         throw "rustup.exe was not installed into $cargoBin"
     }
 
-    Write-Step "Ensuring stable-x86_64-pc-windows-gnu is installed"
+    Write-Step "Ensuring stable-x86_64-pc-windows-msvc is installed"
     Invoke-Native -FilePath $rustupCmd -Arguments @(
         "toolchain",
         "install",
-        "stable-x86_64-pc-windows-gnu"
+        "stable-x86_64-pc-windows-msvc"
     )
 
     # Pin the active toolchain for all subsequent rustup-proxy calls in this script.
-    $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
+    $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
 
     Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
 
@@ -650,10 +650,10 @@ function Invoke-RustToolkitSetup {
         }
     }
 
-    # Verify the active toolchain is the GNU host toolchain (no MSVC link.exe dependency).
+    # Verify the active toolchain is the MSVC host toolchain.
     $rustcHostLine = & $rustcExe -vV 2>&1 | Where-Object { $_ -match "^host:" }
-    if ($rustcHostLine -notmatch "x86_64-pc-windows-gnu") {
-        throw "Expected host toolchain x86_64-pc-windows-gnu but rustc reports: $rustcHostLine"
+    if ($rustcHostLine -notmatch "x86_64-pc-windows-msvc") {
+        throw "Expected host toolchain x86_64-pc-windows-msvc but rustc reports: $rustcHostLine"
     }
 
     Write-Host ""

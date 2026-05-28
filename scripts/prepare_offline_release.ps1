@@ -11,8 +11,8 @@ $ErrorActionPreference = "Stop"
 $script:OfflineReleaseScriptPath = $PSCommandPath
 $script:OfflineReleaseScriptRoot = $PSScriptRoot
 $script:OfflineReleaseToolkitRoot = if ($script:OfflineReleaseScriptRoot) { Split-Path -Parent $script:OfflineReleaseScriptRoot } else { $null }
-$script:HostToolchain = "stable-x86_64-pc-windows-gnu"
-$script:HostTriple = "x86_64-pc-windows-gnu"
+$script:HostToolchain = "stable-x86_64-pc-windows-msvc"
+$script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
 $script:DefaultComponents = @("armv7")
 $script:TargetDefinitions = [ordered]@{
@@ -23,8 +23,8 @@ $script:TargetDefinitions = [ordered]@{
         FilePaths = @(
             "tools/wrappers/arm-linux-musleabihf-gcc.cmd",
             "tools/wrappers/arm-linux-musleabihf-gcc.ps1",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/armv7-unknown-linux-musleabihf",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf"
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/armv7-unknown-linux-musleabihf",
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf"
         )
     }
     aarch64 = @{
@@ -34,8 +34,8 @@ $script:TargetDefinitions = [ordered]@{
         FilePaths = @(
             "tools/wrappers/aarch64-linux-musl-gcc.cmd",
             "tools/wrappers/aarch64-linux-musl-gcc.ps1",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/aarch64-unknown-linux-musl",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/aarch64-unknown-linux-musl",
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
         )
     }
 }

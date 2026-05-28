@@ -51,7 +51,7 @@ function Test-CargoHostTargetSectionName {
     param([AllowEmptyString()][string]$SectionName)
 
     $name = ([string]$SectionName).Trim()
-    return ($name -match "^(?i)target\.(['""]?)x86_64-pc-windows-gnu\1$")
+    return ($name -match "^(?i)target\.(['""]?)x86_64-pc-windows-msvc\1$")
 }
 
 function Repair-CargoHostTargetConfigFile {
@@ -138,14 +138,9 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 Ensure-ZigDlltoolWrapper -WrappersRoot $wrappersRoot
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"
-$hostRustflags = "-C link-self-contained=yes"
-if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-dlltool.cmd")) {
-    $env:DLLTOOL_x86_64_pc_windows_gnu = "zig-dlltool.cmd"
-    Set-Item -Path "Env:DLLTOOL_x86_64-pc-windows-gnu" -Value "zig-dlltool.cmd"
-    $hostRustflags = Add-RustBuildFlagIfMissing -Existing $hostRustflags -Flag "-C dlltool=zig-dlltool.cmd"
-}
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = $hostRustflags
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
+$hostRustflags = "-C linker-flavor=lld-link"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $hostRustflags
 
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "arm-linux-musleabihf-gcc.cmd"
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS = "-C link-self-contained=no"

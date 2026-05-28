@@ -5,8 +5,8 @@ $script:RustBuildIsolatedEnvironmentNames = @(
     'CARGO_ENCODED_RUSTFLAGS',
     'CARGO_TARGET_DIR',
     'RUSTFLAGS',
-    'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER',
-    'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS',
+    'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER',
+    'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS',
     'CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER',
     'CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS',
     'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER',
@@ -15,7 +15,6 @@ $script:RustBuildIsolatedEnvironmentNames = @(
     'HOST_CC',
     'AR',
     'RANLIB',
-    'DLLTOOL',
     'CC_armv7_unknown_linux_musleabihf',
     'AR_armv7_unknown_linux_musleabihf',
     'RANLIB_armv7_unknown_linux_musleabihf',
@@ -28,14 +27,12 @@ $script:RustBuildIsolatedEnvironmentNames = @(
     'CC_aarch64-unknown-linux-musl',
     'AR_aarch64-unknown-linux-musl',
     'RANLIB_aarch64-unknown-linux-musl',
-    'CC_x86_64_pc_windows_gnu',
-    'AR_x86_64_pc_windows_gnu',
-    'RANLIB_x86_64_pc_windows_gnu',
-    'DLLTOOL_x86_64_pc_windows_gnu',
-    'CC_x86_64-pc-windows-gnu',
-    'AR_x86_64-pc-windows-gnu',
-    'RANLIB_x86_64-pc-windows-gnu',
-    'DLLTOOL_x86_64-pc-windows-gnu'
+    'CC_x86_64_pc_windows_msvc',
+    'AR_x86_64_pc_windows_msvc',
+    'RANLIB_x86_64_pc_windows_msvc',
+    'CC_x86_64-pc-windows-msvc',
+    'AR_x86_64-pc-windows-msvc',
+    'RANLIB_x86_64-pc-windows-msvc'
 )
 
 function Save-RustBuildEnvironment {

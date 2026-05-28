@@ -13,8 +13,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$script:HostToolchain = "stable-x86_64-pc-windows-gnu"
-$script:HostTriple = "x86_64-pc-windows-gnu"
+$script:HostToolchain = "stable-x86_64-pc-windows-msvc"
+$script:HostTriple = "x86_64-pc-windows-msvc"
 
 function Ensure-Directory {
     param(
@@ -94,7 +94,7 @@ function Set-RustupSettings {
     $settingsPath = Join-Path $InstallRoot "tools\rustup-home\settings.toml"
     $content = @(
         'version = "12"',
-        'default_toolchain = "stable-x86_64-pc-windows-gnu"',
+        'default_toolchain = "stable-x86_64-pc-windows-msvc"',
         'profile = "minimal"',
         '',
         '[overrides]'
