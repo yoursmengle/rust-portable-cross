@@ -19,6 +19,32 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+function Get-InstallerExportDirectory {
+    param([string]$RepoPath)
+
+    return Join-Path (Split-Path -Parent $RepoPath) "output"
+}
+
+function Copy-BuiltInstallerArtifact {
+    param(
+        [string]$InstallerPath,
+        [string]$RepoPath
+    )
+
+    if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
+        throw "Installer output not found: $InstallerPath"
+    }
+
+    $exportDir = Get-InstallerExportDirectory -RepoPath $RepoPath
+    if (-not (Test-Path -LiteralPath $exportDir)) {
+        New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
+    }
+
+    $destinationPath = Join-Path $exportDir ([IO.Path]::GetFileName($InstallerPath))
+    Copy-Item -LiteralPath $InstallerPath -Destination $destinationPath -Force
+    return $destinationPath
+}
+
 function Get-VersionFromGitTag {
     param([string]$RepoPath)
 
@@ -131,8 +157,10 @@ if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
 
 $ExpectedExe = Join-Path $InstallerDir "rust-portable-cross-offline-$Version.exe"
 if (Test-Path -LiteralPath $ExpectedExe) {
+    $CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
     Write-Step "Installer built successfully:"
     Write-Host "    $ExpectedExe" -ForegroundColor Green
+    Write-Host "    Copied to $CopiedExe" -ForegroundColor Green
 } else {
     Write-Warning "Installer compilation reported success but expected output not found: $ExpectedExe"
 }
