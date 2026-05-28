@@ -97,7 +97,12 @@ function New-ZigToolWrapperIfMissing {
     if (-not (Test-Path -LiteralPath $cmdPath -PathType Leaf)) {
         $cmdBody = @(
             "@echo off",
-            "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$ToolName.ps1`" %*"
+            "setlocal",
+            'set "_PS="',
+            'for %%I in (pwsh.exe) do set "_PS=%%~$PATH:I"',
+            'if not defined _PS if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "_PS=%ProgramFiles%\PowerShell\7\pwsh.exe"',
+            'if not defined _PS set "_PS=powershell"',
+            "`"%_PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$ToolName.ps1`" %*"
         ) -join "`r`n"
         Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
     }
