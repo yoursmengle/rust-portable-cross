@@ -118,6 +118,90 @@ function Ensure-ZigDlltoolWrapper {
         -Description "for Windows GNU import library generation"
 }
 
+function Get-NormalizedCargoSectionName {
+    param([AllowEmptyString()][string]$SectionName)
+
+    return (([string]$SectionName).Trim().Replace('"', '').Replace("'", '').ToLowerInvariant())
+}
+
+function Test-CargoWindowsHostTargetSectionName {
+    param([AllowEmptyString()][string]$SectionName)
+
+    $name = Get-NormalizedCargoSectionName -SectionName $SectionName
+    return ($name -eq "target.x86_64-pc-windows-gnu" -or $name -eq "target.x86_64-pc-windows-msvc")
+}
+
+function Repair-CargoHostTargetConfigFile {
+    param([AllowEmptyString()][string]$ConfigPath)
+
+    if ([string]::IsNullOrWhiteSpace($ConfigPath) -or -not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        return $false
+    }
+
+    $lines = @(Get-Content -LiteralPath $ConfigPath -Encoding UTF8)
+    $kept = New-Object System.Collections.Generic.List[string]
+    $insideRemovedSection = $false
+    $changed = $false
+    $currentSection = ""
+
+    foreach ($line in $lines) {
+        $trimmed = ([string]$line).Trim()
+        if ($trimmed -match '^\s*\[([^\]]+)\]\s*(?:#.*)?$') {
+            $sectionName = [string]$Matches[1]
+            $currentSection = Get-NormalizedCargoSectionName -SectionName $sectionName
+            $insideRemovedSection = Test-CargoWindowsHostTargetSectionName -SectionName $sectionName
+            if ($insideRemovedSection) {
+                $changed = $true
+                continue
+            }
+        }
+
+        if ($insideRemovedSection) {
+            $changed = $true
+            continue
+        }
+
+        if ($currentSection -eq "build" -and $trimmed -match '^(?i)target\s*=\s*(["'']?)x86_64-pc-windows-(gnu|msvc)\1\s*(?:#.*)?$') {
+            $changed = $true
+            continue
+        }
+
+        $kept.Add([string]$line) | Out-Null
+    }
+
+    if (-not $changed) {
+        return $false
+    }
+
+    Set-Content -LiteralPath $ConfigPath -Value $kept.ToArray() -Encoding UTF8
+    Write-Host "Repaired Windows host Cargo config: $ConfigPath"
+    return $true
+}
+
+function Repair-CargoHostTargetConfig {
+    param(
+        [AllowEmptyString()][string]$ToolkitRoot,
+        [AllowEmptyString()][string]$ProjectRoot
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ToolkitRoot)) {
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $ToolkitRoot "config\.cargo\config.toml") | Out-Null
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $ToolkitRoot "tools\cargo-home\config.toml") | Out-Null
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $ToolkitRoot "tools\cargo-home\config") | Out-Null
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:CARGO_HOME)) {
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config.toml") | Out-Null
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config") | Out-Null
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        $projectCargoDir = Join-Path $ProjectRoot ".cargo"
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $projectCargoDir "config.toml") | Out-Null
+        Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $projectCargoDir "config") | Out-Null
+    }
+}
+
 function Clear-RustBuildEnvironment {
     foreach ($name in @($script:RustBuildIsolatedEnvironmentNames)) {
         Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue

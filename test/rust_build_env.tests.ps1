@@ -64,17 +64,11 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match 'Repair-CargoHostTargetConfig\s+-ToolkitRoot\s+\$toolkitRoot\s+-ProjectRoot\s+\(Get-Location\)\.Path') `
         -Message "$ScriptPath should sanitize Cargo config files before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "x86_64-pc-windows-gnu") `
-        -Message "$ScriptPath should explicitly identify the Windows GNU host target."
+        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
+        -Message "$ScriptPath should force Windows MSVC host build scripts to use rust-lld before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
-        -Message "$ScriptPath should force Windows GNU host build scripts to use rust-lld before cargo build."
-    Assert-True `
-        -Condition ($beforeCargoBuild -match "link-self-contained=yes") `
-        -Message "$ScriptPath should force Windows GNU host build scripts to use the portable self-contained CRT before cargo build."
-    Assert-True `
-        -Condition ($beforeCargoBuild -match "dlltool=zig-dlltool\.cmd") `
-        -Message "$ScriptPath should keep the zig dlltool rustflag available for Windows GNU host build scripts."
+        -Condition ($beforeCargoBuild -match "linker-flavor=lld-link") `
+        -Message "$ScriptPath should force Windows MSVC host build scripts to use the lld-link flavor before cargo build."
 }
 
 function Assert-X64WinEnvBeforeCargoBuild {
@@ -109,8 +103,11 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($projectResolveIndex -lt $cargoTomlCheckIndex) `
         -Message "$ScriptPath should resolve ProjectPath before checking Cargo.toml."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "rust-lld"'))) `
-        -Message "$ScriptPath should set the x64 Windows GNU linker before cargo build."
+        -Condition ($beforeCargoBuild -match 'Repair-CargoHostTargetConfig\s+-ToolkitRoot\s+\$toolkitRoot\s+-ProjectRoot\s+\$resolvedProjectPath') `
+        -Message "$ScriptPath should sanitize Cargo config files before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
+        -Message "$ScriptPath should set the x64 Windows MSVC linker before cargo build."
     Assert-True `
         -Condition ($beforeCargoBuild -match "rust_build_isolation\.ps1") `
         -Message "$ScriptPath should load the target environment isolation helper before cargo build."
@@ -118,23 +115,17 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
         -Message "$ScriptPath should clear stale target environment before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER')) `
-        -Message "$ScriptPath should clear stale target environment before setting the x64 Windows GNU linker."
-    Assert-True `
-        -Condition ($beforeCargoBuild -match 'Ensure-ZigDlltoolWrapper\s+-WrappersRoot') `
-        -Message "$ScriptPath should ensure the Zig dlltool wrapper before cargo build."
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER')) `
+        -Message "$ScriptPath should clear stale target environment before setting the x64 Windows MSVC linker."
     Assert-True `
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "link-self-contained=yes") `
-        -Message "$ScriptPath should force the x64 Windows GNU target to use portable self-contained CRT before cargo build."
+        -Condition ($beforeCargoBuild -match "linker-flavor=lld-link") `
+        -Message "$ScriptPath should force the x64 Windows MSVC target to use the lld-link flavor before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "dlltool=zig-dlltool\.cmd") `
-        -Message "$ScriptPath should keep the zig dlltool rustflag for windows-targets before cargo build."
-    Assert-True `
-        -Condition ($body -match "cargo build --release --target x86_64-pc-windows-gnu") `
-        -Message "$ScriptPath should build the approved x86_64-pc-windows-gnu target."
+        -Condition ($body -match "cargo build --release --target x86_64-pc-windows-msvc") `
+        -Message "$ScriptPath should build the approved x86_64-pc-windows-msvc target."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -154,14 +145,56 @@ Assert-True `
 foreach ($envName in @(
     "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER",
     "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
-    "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER",
+    "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER",
     "CC_armv7-unknown-linux-musleabihf",
     "CC_aarch64-unknown-linux-musl",
-    "CC_x86_64-pc-windows-gnu"
+    "CC_x86_64-pc-windows-msvc"
 )) {
     Assert-True `
         -Condition ($isolationHelperBody -match [regex]::Escape($envName)) `
         -Message "Build isolation helper should isolate $envName."
+}
+
+Assert-True `
+    -Condition ($isolationHelperBody -match 'function Repair-CargoHostTargetConfig') `
+    -Message "Build isolation helper should provide Cargo host config repair."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'x86_64-pc-windows-gnu') `
+    -Message "Cargo host config repair should detect stale Windows GNU host config."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'x86_64-pc-windows-msvc') `
+    -Message "Cargo host config repair should detect stale Windows MSVC host config."
+
+. $isolationHelper
+$repairTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cargo-host-config-repair-" + [guid]::NewGuid().ToString("N"))
+try {
+    New-Item -ItemType Directory -Path $repairTestRoot -Force | Out-Null
+    $repairConfigPath = Join-Path $repairTestRoot "config.toml"
+    @'
+[build]
+target = "x86_64-pc-windows-gnu"
+jobs = 2
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc.cmd"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc.cmd"
+'@ | Set-Content -LiteralPath $repairConfigPath -Encoding ASCII
+
+    Repair-CargoHostTargetConfigFile -ConfigPath $repairConfigPath | Out-Null
+
+    $repairedContent = Get-Content -LiteralPath $repairConfigPath -Raw
+    Assert-True -Condition ($repairedContent -notmatch "x86_64-pc-windows-gnu") -Message "Cargo repair should remove stale Windows GNU host config."
+    Assert-True -Condition ($repairedContent -notmatch "x86_64-pc-windows-msvc") -Message "Cargo repair should remove stale Windows MSVC host config."
+    Assert-True -Condition ($repairedContent -match "jobs = 2") -Message "Cargo repair should preserve unrelated build config."
+    Assert-True -Condition ($repairedContent -match "aarch64-unknown-linux-musl") -Message "Cargo repair should preserve Linux target config."
+}
+finally {
+    Remove-Item -LiteralPath $repairTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Assert-EnvBeforeCargoBuild `

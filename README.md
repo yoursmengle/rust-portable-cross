@@ -32,7 +32,7 @@ Run once from the repository root to download and install all toolchain componen
 ```
 
 This will:
-- Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-gnu` toolchain into `tools/`
+- Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-msvc` toolchain into `tools/`
 - Add the `armv7-unknown-linux-musleabihf` and `aarch64-unknown-linux-musl` targets
 - Download and extract Zig 0.13.0 into `tools/zig/`
 - Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`
@@ -138,9 +138,7 @@ Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCH
 
 Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`.
 
-Windows x64 native application development is out of scope for this toolkit. Use your system Rust toolchain (`rustup`, `cargo`, `rustc`) directly for `x86_64-pc-windows-msvc` or other native Windows targets.
-
-If you want to build `x86_64-pc-windows-gnu` without installing system Rust, use:
+If you want to build `x86_64-pc-windows-msvc` without installing system Rust, use:
 
 ```powershell
 .\scripts\rust_build_x64_win_native.ps1 -ProjectPath D:\path\to\your\project

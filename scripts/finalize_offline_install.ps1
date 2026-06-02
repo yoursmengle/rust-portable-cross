@@ -237,6 +237,21 @@ function Ensure-LocalCacheDirectories {
     }
 }
 
+function Repair-InstalledCargoHostConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $isolationScript = Join-Path $PSScriptRoot "rust_build_isolation.ps1"
+    if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
+        throw "Missing build isolation helper: $isolationScript"
+    }
+
+    . $isolationScript
+    Repair-CargoHostTargetConfig -ToolkitRoot $InstallRoot -ProjectRoot ""
+}
+
 function Test-OfflineInstall {
     param(
         [Parameter(Mandatory = $true)]
@@ -309,6 +324,7 @@ function Invoke-FinalizeOfflineInstall {
     $selectedComponentList = Get-SelectedComponentList -SelectedComponents $SelectedComponents
 
     Ensure-LocalCacheDirectories -InstallRoot $resolvedInstallRoot
+    Repair-InstalledCargoHostConfig -InstallRoot $resolvedInstallRoot
     Remove-UnselectedComponentFiles -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
     Set-RustupSettings -InstallRoot $resolvedInstallRoot
     Set-ToolchainComponentsFile -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList

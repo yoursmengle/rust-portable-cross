@@ -62,13 +62,13 @@ try {
     $layout = [ordered]@{
         productName = "Rust Portable Cross"
         productVersion = "9.9.9"
-        hostToolchain = "stable-x86_64-pc-windows-gnu"
-        hostTriple = "x86_64-pc-windows-gnu"
+        hostToolchain = "stable-x86_64-pc-windows-msvc"
+        hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
-            "rust-mingw-x86_64-pc-windows-gnu",
-            "cargo-x86_64-pc-windows-gnu",
-            "rust-std-x86_64-pc-windows-gnu",
-            "rustc-x86_64-pc-windows-gnu"
+            "rust-mingw-x86_64-pc-windows-msvc",
+            "cargo-x86_64-pc-windows-msvc",
+            "rust-std-x86_64-pc-windows-msvc",
+            "rustc-x86_64-pc-windows-msvc"
         )
         targets = [ordered]@{
             armv7 = @{
@@ -89,18 +89,38 @@ try {
 
     $layout | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $tempRoot "install-layout.json") -Encoding ASCII
     New-TestFile -Path (Join-Path $tempRoot "tools\cargo-home\bin\cargo.exe")
-    New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\placeholder.txt")
+    New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\placeholder.txt")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_aarch64.ps1")
+    New-TestFile -Path (Join-Path $tempRoot "config\.cargo\config.toml") -Content @'
+[build]
+target = "x86_64-pc-windows-gnu"
+jobs = 2
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc.cmd"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc.cmd"
+'@
 
     Invoke-FinalizeOfflineInstall -InstallRoot $tempRoot -SelectedComponents "armv7" -InstallScope "perUser"
 
     $settingsContent = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\settings.toml") -Raw
-    Assert-True -Condition ($settingsContent -match 'default_toolchain = "stable-x86_64-pc-windows-gnu"') -Message "finalize should write GNU rustup settings"
+    Assert-True -Condition ($settingsContent -match 'default_toolchain = "stable-x86_64-pc-windows-msvc"') -Message "finalize should write MSVC rustup settings"
 
-    $components = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\components")
+    $components = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components")
     Assert-True -Condition ($components -contains "rust-std-armv7-unknown-linux-musleabihf") -Message "selected armv7 target should be added to the components file"
     Assert-True -Condition (-not ($components -contains "rust-std-aarch64-unknown-linux-musl")) -Message "unselected aarch64 target should be absent from the components file"
+
+    $cargoConfigContent = Get-Content -LiteralPath (Join-Path $tempRoot "config\.cargo\config.toml") -Raw
+    Assert-True -Condition ($cargoConfigContent -notmatch "x86_64-pc-windows-gnu") -Message "finalize should remove stale Windows GNU host Cargo config"
+    Assert-True -Condition ($cargoConfigContent -notmatch "x86_64-pc-windows-msvc") -Message "finalize should remove stale Windows MSVC host Cargo config"
+    Assert-True -Condition ($cargoConfigContent -match "jobs = 2") -Message "finalize should preserve unrelated build config"
+    Assert-True -Condition ($cargoConfigContent -match "aarch64-unknown-linux-musl") -Message "finalize should preserve Linux target Cargo config"
 
     $manifest = Get-Content -LiteralPath (Join-Path $tempRoot "install-manifest.json") -Raw | ConvertFrom-Json
     Assert-Equal -Actual $manifest.installScope -Expected "perUser" -Message "install scope should be recorded in the install manifest"
@@ -123,13 +143,13 @@ try {
     $layout = [ordered]@{
         productName = "Rust Portable Cross"
         productVersion = "9.9.9"
-        hostToolchain = "stable-x86_64-pc-windows-gnu"
-        hostTriple = "x86_64-pc-windows-gnu"
+        hostToolchain = "stable-x86_64-pc-windows-msvc"
+        hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
-            "rust-mingw-x86_64-pc-windows-gnu",
-            "cargo-x86_64-pc-windows-gnu",
-            "rust-std-x86_64-pc-windows-gnu",
-            "rustc-x86_64-pc-windows-gnu"
+            "rust-mingw-x86_64-pc-windows-msvc",
+            "cargo-x86_64-pc-windows-msvc",
+            "rust-std-x86_64-pc-windows-msvc",
+            "rustc-x86_64-pc-windows-msvc"
         )
         targets = [ordered]@{
             armv7 = @{
@@ -144,7 +164,7 @@ try {
     }
 
     $layout | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $compatRoot "install-layout.json") -Encoding ASCII
-    New-Item -ItemType Directory -Path (Join-Path $compatRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $compatRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib") -Force | Out-Null
 
     $powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
     $compatOutput = & $powershellExe -NoProfile -ExecutionPolicy Bypass -Command "& { Remove-Item Env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ErrorAction SilentlyContinue; & '$PSScriptRoot\..\scripts\finalize_offline_install.ps1' -InstallRoot '$compatRoot' -SelectedComponents 'armv7' -InstallScope 'perUser' }" 2>&1

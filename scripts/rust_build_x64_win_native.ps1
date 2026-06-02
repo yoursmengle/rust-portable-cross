@@ -147,6 +147,7 @@ $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:PATH = "$nativeWrapperRoot;$PSScriptRoot;$wrappersRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$rustMsvcBin;$env:PATH"
 
+Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot $resolvedProjectPath
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
     -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `

@@ -91,15 +91,15 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-ranlib.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.cmd")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\zig-dlltool.ps1")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\update-hashes\stable-x86_64-pc-windows-gnu")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\bin\rustc.exe")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\manifest-rust-std-x86_64-pc-windows-gnu")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\components")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\armv7-unknown-linux-musleabihf\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\manifest-rust-std-armv7-unknown-linux-musleabihf")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\aarch64-unknown-linux-musl\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\manifest-rust-std-aarch64-unknown-linux-musl")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\update-hashes\stable-x86_64-pc-windows-msvc")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\std.rlib")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-x86_64-pc-windows-msvc")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf\lib\std.rlib")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-armv7-unknown-linux-musleabihf")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\aarch64-unknown-linux-musl\lib\std.rlib")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-aarch64-unknown-linux-musl")
 
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 
@@ -120,9 +120,9 @@ try {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ar.cmd")) -Message "core payload should contain zig wrapper cmd scripts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ranlib.ps1")) -Message "core payload should contain zig wrapper ps1 scripts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-dlltool.cmd")) -Message "core payload should contain zig dlltool wrapper scripts"
-    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\x86_64-pc-windows-gnu\lib\std.rlib")) -Message "core payload should contain the host rustlib"
-    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
-    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-gnu\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\std.rlib")) -Message "core payload should contain the host rustlib"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\scripts\rust_build_armv7.ps1")) -Message "armv7 payload should contain its build script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\tools\wrappers\arm-linux-musleabihf-gcc.cmd")) -Message "armv7 payload should contain its wrapper"
@@ -134,7 +134,7 @@ try {
 
     $layout = Get-Content -LiteralPath (Join-Path $coreRoot "install-layout.json") -Raw | ConvertFrom-Json -Depth 6
     Assert-Equal -Actual $layout.productVersion -Expected "1.2.3" -Message "layout should preserve the requested version"
-    Assert-Equal -Actual $layout.hostToolchain -Expected "stable-x86_64-pc-windows-gnu" -Message "layout should record the GNU host toolchain"
+    Assert-Equal -Actual $layout.hostToolchain -Expected "stable-x86_64-pc-windows-msvc" -Message "layout should record the MSVC host toolchain"
     Assert-Equal -Actual $layout.defaultComponents.Count -Expected 1 -Message "layout should keep a single default component"
     Assert-Equal -Actual $layout.defaultComponents[0] -Expected "armv7" -Message "layout should default to armv7"
     Assert-True -Condition ($layout.componentFiles.core -contains "tools/wrappers/zig-ar.cmd") -Message "layout should record core zig wrapper files"
