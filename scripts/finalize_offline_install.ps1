@@ -298,7 +298,7 @@ function Test-OfflineInstall {
     }
 
     if (($rustcVerbose | Where-Object { $_ -match "^host: " }) -notcontains "host: $script:HostTriple") {
-        throw "rustc host triple does not match the expected GNU host."
+        throw "rustc host triple does not match the expected MSVC host."
     }
 
     foreach ($targetName in @("armv7", "aarch64")) {

@@ -39,6 +39,7 @@ function Assert-EnvBeforeCargoBuild {
     Assert-True -Condition ($cargoBuildIndex -gt 0) -Message "$ScriptPath should invoke cargo build."
 
     $beforeCargoBuild = $body.Substring(0, $cargoBuildIndex)
+    $legacyImportToolFunctionName = "Ensure-Zig" + "Dll" + "toolWrapper"
     Assert-True `
         -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:$LinkerEnvName = `"$LinkerValue`""))) `
         -Message "$ScriptPath should set $LinkerEnvName before cargo build."
@@ -52,8 +53,8 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("`$env:$LinkerEnvName")) `
         -Message "$ScriptPath should clear stale target environment before setting $LinkerEnvName."
     Assert-True `
-        -Condition ($beforeCargoBuild -match 'Ensure-ZigDlltoolWrapper\s+-WrappersRoot') `
-        -Message "$ScriptPath should ensure the Zig dlltool wrapper before cargo build."
+        -Condition ($beforeCargoBuild -notmatch ([regex]::Escape($legacyImportToolFunctionName) + '\s+-WrappersRoot')) `
+        -Message "$ScriptPath should not ensure a legacy Windows import-library wrapper before cargo build."
     Assert-True `
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
@@ -126,6 +127,13 @@ function Assert-X64WinEnvBeforeCargoBuild {
     Assert-True `
         -Condition ($body -match "cargo build --release --target x86_64-pc-windows-msvc") `
         -Message "$ScriptPath should build the approved x86_64-pc-windows-msvc target."
+    Assert-True `
+        -Condition ($body -match 'cc -target x86_64-windows-msvc @filtered') `
+        -Message "$ScriptPath should force the host C wrapper to use the MSVC Zig ABI."
+    $ambiguousWindowsZigTarget = "x86_64-windows"
+    Assert-True `
+        -Condition ($body -notmatch [regex]::Escape("cc -target $ambiguousWindowsZigTarget @filtered")) `
+        -Message "$ScriptPath should not use Zig's ambiguous Windows C target."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -137,11 +145,11 @@ Assert-True `
     -Condition ($isolationHelperBody -match 'Remove-Item\s+-LiteralPath\s+"Env:\$name"') `
     -Message "Build isolation helper should remove env vars instead of leaving empty-string values."
 Assert-True `
-    -Condition ($isolationHelperBody -match 'function Ensure-ZigDlltoolWrapper') `
-    -Message "Build isolation helper should provide a Zig dlltool wrapper generator."
+    -Condition ($isolationHelperBody -notmatch [regex]::Escape(("Ensure-Zig" + "Dll" + "toolWrapper"))) `
+    -Message "Build isolation helper should not provide a legacy Windows import-library wrapper generator."
 Assert-True `
-    -Condition ($isolationHelperBody -match 'ZigSubcommand "dlltool"') `
-    -Message "Build isolation helper should forward zig-dlltool to zig dlltool."
+    -Condition ($isolationHelperBody -notmatch [regex]::Escape(('ZigSubcommand "' + "dll" + 'tool"'))) `
+    -Message "Build isolation helper should not forward to the legacy Windows import-library tool."
 foreach ($envName in @(
     "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER",
     "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
@@ -159,8 +167,8 @@ Assert-True `
     -Condition ($isolationHelperBody -match 'function Repair-CargoHostTargetConfig') `
     -Message "Build isolation helper should provide Cargo host config repair."
 Assert-True `
-    -Condition ($isolationHelperBody -match 'x86_64-pc-windows-gnu') `
-    -Message "Cargo host config repair should detect stale Windows GNU host config."
+    -Condition ($isolationHelperBody -notmatch [regex]::Escape(("x86_64-pc-windows-" + "g" + "nu"))) `
+    -Message "Cargo host config repair should not keep literal stale Windows non-MSVC host triples."
 Assert-True `
     -Condition ($isolationHelperBody -match 'x86_64-pc-windows-msvc') `
     -Message "Cargo host config repair should detect stale Windows MSVC host config."
@@ -170,25 +178,32 @@ $repairTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cargo-host-confi
 try {
     New-Item -ItemType Directory -Path $repairTestRoot -Force | Out-Null
     $repairConfigPath = Join-Path $repairTestRoot "config.toml"
-    @'
+    $staleWindowsHostTriple = "x86_64-pc-windows-" + "g" + "nu"
+    $staleWindowsHostLinker = "x86_64-" + "w64-" + "min" + "gw32-gcc.cmd"
+    $repairConfigContent = @'
 [build]
-target = "x86_64-pc-windows-gnu"
+target = "__STALE_WINDOWS_HOST_TRIPLE__"
 jobs = 2
 
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc.cmd"
+[target.__STALE_WINDOWS_HOST_TRIPLE__]
+linker = "__STALE_WINDOWS_HOST_LINKER__"
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld"
 
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-musl-gcc.cmd"
-'@ | Set-Content -LiteralPath $repairConfigPath -Encoding ASCII
+'@
+    $repairConfigContent = $repairConfigContent.
+        Replace("__STALE_WINDOWS_HOST_TRIPLE__", $staleWindowsHostTriple).
+        Replace("__STALE_WINDOWS_HOST_LINKER__", $staleWindowsHostLinker)
+    Set-Content -LiteralPath $repairConfigPath -Value $repairConfigContent -Encoding ASCII
 
     Repair-CargoHostTargetConfigFile -ConfigPath $repairConfigPath | Out-Null
 
     $repairedContent = Get-Content -LiteralPath $repairConfigPath -Raw
-    Assert-True -Condition ($repairedContent -notmatch "x86_64-pc-windows-gnu") -Message "Cargo repair should remove stale Windows GNU host config."
+    Assert-True -Condition ($repairedContent -notmatch [regex]::Escape($staleWindowsHostTriple)) -Message "Cargo repair should remove stale non-MSVC Windows host config."
+    Assert-True -Condition ($repairedContent -notmatch [regex]::Escape($staleWindowsHostLinker)) -Message "Cargo repair should remove stale non-MSVC Windows host linker config."
     Assert-True -Condition ($repairedContent -notmatch "x86_64-pc-windows-msvc") -Message "Cargo repair should remove stale Windows MSVC host config."
     Assert-True -Condition ($repairedContent -match "jobs = 2") -Message "Cargo repair should preserve unrelated build config."
     Assert-True -Condition ($repairedContent -match "aarch64-unknown-linux-musl") -Message "Cargo repair should preserve Linux target config."

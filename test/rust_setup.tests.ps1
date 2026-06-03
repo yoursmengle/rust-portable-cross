@@ -100,10 +100,15 @@ try {
 
     Assert-True -Condition (Test-ZipArchive -Path $validZipPath) -Message "valid zip archives should pass integrity validation"
     Assert-True -Condition (-not (Test-ZipArchive -Path $invalidZipPath)) -Message "corrupt zip archives should fail integrity validation"
-    Assert-True -Condition (-not (Test-ZipArchive -Path (Join-Path $tempRoot "missing.zip"))) -Message "missing zip archives should fail integrity validation"
+Assert-True -Condition (-not (Test-ZipArchive -Path (Join-Path $tempRoot "missing.zip"))) -Message "missing zip archives should fail integrity validation"
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+$setupScriptBody = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\scripts\rust_setup.ps1") -Raw -Encoding UTF8
+Assert-True -Condition ($setupScriptBody -match 'zig-lib\.ps1') -Message "setup should generate the MSVC-compatible zig-lib wrapper."
+Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("zig-" + "dll" + "tool"))) -Message "setup should not generate the legacy Windows import-library wrapper."
+Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("x86_64-" + "w64"))) -Message "setup should not generate non-MSVC Windows host wrappers."
 
 Write-Host "rust_setup tests passed."

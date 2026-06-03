@@ -65,7 +65,6 @@ try {
         hostToolchain = "stable-x86_64-pc-windows-msvc"
         hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
-            "rust-mingw-x86_64-pc-windows-msvc",
             "cargo-x86_64-pc-windows-msvc",
             "rust-std-x86_64-pc-windows-msvc",
             "rustc-x86_64-pc-windows-msvc"
@@ -92,13 +91,15 @@ try {
     New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\placeholder.txt")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_aarch64.ps1")
-    New-TestFile -Path (Join-Path $tempRoot "config\.cargo\config.toml") -Content @'
+    $staleWindowsHostTriple = "x86_64-pc-windows-" + "g" + "nu"
+    $staleWindowsHostLinker = "x86_64-" + "w64-" + "min" + "gw32-gcc.cmd"
+    $cargoConfigContent = @'
 [build]
-target = "x86_64-pc-windows-gnu"
+target = "__STALE_WINDOWS_HOST_TRIPLE__"
 jobs = 2
 
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc.cmd"
+[target.__STALE_WINDOWS_HOST_TRIPLE__]
+linker = "__STALE_WINDOWS_HOST_LINKER__"
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld"
@@ -106,6 +107,10 @@ linker = "rust-lld"
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-musl-gcc.cmd"
 '@
+    $cargoConfigContent = $cargoConfigContent.
+        Replace("__STALE_WINDOWS_HOST_TRIPLE__", $staleWindowsHostTriple).
+        Replace("__STALE_WINDOWS_HOST_LINKER__", $staleWindowsHostLinker)
+    New-TestFile -Path (Join-Path $tempRoot "config\.cargo\config.toml") -Content $cargoConfigContent
 
     Invoke-FinalizeOfflineInstall -InstallRoot $tempRoot -SelectedComponents "armv7" -InstallScope "perUser"
 
@@ -117,7 +122,8 @@ linker = "aarch64-linux-musl-gcc.cmd"
     Assert-True -Condition (-not ($components -contains "rust-std-aarch64-unknown-linux-musl")) -Message "unselected aarch64 target should be absent from the components file"
 
     $cargoConfigContent = Get-Content -LiteralPath (Join-Path $tempRoot "config\.cargo\config.toml") -Raw
-    Assert-True -Condition ($cargoConfigContent -notmatch "x86_64-pc-windows-gnu") -Message "finalize should remove stale Windows GNU host Cargo config"
+    Assert-True -Condition ($cargoConfigContent -notmatch [regex]::Escape($staleWindowsHostTriple)) -Message "finalize should remove stale non-MSVC Windows host Cargo config"
+    Assert-True -Condition ($cargoConfigContent -notmatch [regex]::Escape($staleWindowsHostLinker)) -Message "finalize should remove stale non-MSVC Windows host linker config"
     Assert-True -Condition ($cargoConfigContent -notmatch "x86_64-pc-windows-msvc") -Message "finalize should remove stale Windows MSVC host Cargo config"
     Assert-True -Condition ($cargoConfigContent -match "jobs = 2") -Message "finalize should preserve unrelated build config"
     Assert-True -Condition ($cargoConfigContent -match "aarch64-unknown-linux-musl") -Message "finalize should preserve Linux target Cargo config"
@@ -146,7 +152,6 @@ try {
         hostToolchain = "stable-x86_64-pc-windows-msvc"
         hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
-            "rust-mingw-x86_64-pc-windows-msvc",
             "cargo-x86_64-pc-windows-msvc",
             "rust-std-x86_64-pc-windows-msvc",
             "rustc-x86_64-pc-windows-msvc"

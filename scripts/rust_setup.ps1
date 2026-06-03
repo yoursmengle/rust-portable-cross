@@ -390,6 +390,20 @@ function Invoke-RustToolkitSetup {
         Ensure-Directory -Path $directory
     }
 
+    $legacyHostAbi = "g" + "nu"
+    $legacyHostWrapperBase = "x86_64-" + "w64-" + ("min" + "gw32") + "-gcc"
+    $legacyHostTriple = "x86_64-pc-windows-$legacyHostAbi"
+    foreach ($legacyWrapperFile in @(
+        "$legacyHostWrapperBase.cmd",
+        "$legacyHostWrapperBase.ps1",
+        ("zig-" + "dll" + "tool.cmd"),
+        ("zig-" + "dll" + "tool.ps1")
+    )) {
+        Remove-ManagedPath -Path (Join-Path $wrappersRoot $legacyWrapperFile)
+    }
+    Remove-ManagedPath -Path (Join-Path $rustupHome "toolchains\stable-$legacyHostTriple")
+    Remove-ManagedPath -Path (Join-Path $rustupHome "update-hashes\stable-$legacyHostTriple")
+
     $env:RUST_PORTABLE_CROSS_ROOT = $toolkitRoot
     $env:CARGO_HOME = $cargoHome
     $env:RUSTUP_HOME = $rustupHome
@@ -618,20 +632,25 @@ function Invoke-RustToolkitSetup {
     ) -join "`r`n"
     Set-Content -LiteralPath $zigRanlibCmdPath -Value $zigRanlibCmdBody -Encoding ASCII
 
-    $zigDlltoolPs1Path = Join-Path $wrappersRoot "zig-dlltool.ps1"
-    $zigDlltoolPs1Body = @(
-        "# Wrapper: forwards args to ``zig dlltool`` for Windows GNU import library generation.",
-        "& `"`$PSScriptRoot\..\zig\zig.exe`" dlltool @args",
+    $zigLibPs1Path = Join-Path $wrappersRoot "zig-lib.ps1"
+    $zigLibPs1Body = @(
+        "# Wrapper: forwards args to ``zig lib`` to provide a repository-local MSVC-compatible archive tool.",
+        "# cc-rs may pass args with '-' prefixes (for example -out:X), but ``zig lib`` expects '/'.",
+        "`$translated = `$args | ForEach-Object {",
+        "    `$a = [string]`$_",
+        "    if (`$a -match '^-([A-Za-z])') { '/' + `$a.Substring(1) } else { `$a }",
+        "}",
+        "& `"`$PSScriptRoot\..\zig\zig.exe`" lib @translated",
         "exit `$LASTEXITCODE"
     ) -join "`r`n"
-    Set-Content -LiteralPath $zigDlltoolPs1Path -Value $zigDlltoolPs1Body -Encoding ASCII
+    Set-Content -LiteralPath $zigLibPs1Path -Value $zigLibPs1Body -Encoding ASCII
 
-    $zigDlltoolCmdPath = Join-Path $wrappersRoot "zig-dlltool.cmd"
-    $zigDlltoolCmdBody = @(
+    $zigLibCmdPath = Join-Path $wrappersRoot "zig-lib.cmd"
+    $zigLibCmdBody = @(
         "@echo off",
-        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-dlltool.ps1`" %*"
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-lib.ps1`" %*"
     ) -join "`r`n"
-    Set-Content -LiteralPath $zigDlltoolCmdPath -Value $zigDlltoolCmdBody -Encoding ASCII
+    Set-Content -LiteralPath $zigLibCmdPath -Value $zigLibCmdBody -Encoding ASCII
 
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()

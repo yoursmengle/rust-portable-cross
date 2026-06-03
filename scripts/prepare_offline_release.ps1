@@ -317,7 +317,6 @@ function New-ActivationScript {
 
 function Get-HostRustComponents {
     return @(
-        "rust-mingw-$script:HostTriple",
         "cargo-$script:HostTriple",
         "rust-std-$script:HostTriple",
         "rustc-$script:HostTriple"
@@ -428,8 +427,8 @@ function Invoke-PrepareOfflineRelease {
         "tools/wrappers/zig-ar.ps1",
         "tools/wrappers/zig-ranlib.cmd",
         "tools/wrappers/zig-ranlib.ps1",
-        "tools/wrappers/zig-dlltool.cmd",
-        "tools/wrappers/zig-dlltool.ps1"
+        "tools/wrappers/zig-lib.cmd",
+        "tools/wrappers/zig-lib.ps1"
     )) {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }

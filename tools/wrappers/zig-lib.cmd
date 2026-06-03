@@ -1,3 +1,2 @@
 @echo off
-"%~dp0..\zig\zig.exe" lib %*
-exit /b %ERRORLEVEL%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0zig-lib.ps1" %*

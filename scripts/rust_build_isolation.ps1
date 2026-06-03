@@ -61,63 +61,6 @@ function Add-RustBuildFlagIfMissing {
     return "$Existing $Flag"
 }
 
-function New-ZigToolWrapperIfMissing {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$WrappersRoot,
-
-        [Parameter(Mandatory = $true)]
-        [string]$ToolName,
-
-        [Parameter(Mandatory = $true)]
-        [string]$ZigSubcommand,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Description
-    )
-
-    if (-not (Test-Path -LiteralPath $WrappersRoot -PathType Container)) {
-        New-Item -ItemType Directory -Path $WrappersRoot -Force | Out-Null
-    }
-
-    $ps1Path = Join-Path $WrappersRoot "$ToolName.ps1"
-    if (-not (Test-Path -LiteralPath $ps1Path -PathType Leaf)) {
-        $ps1Body = @(
-            "# Wrapper: forwards args to ``zig $ZigSubcommand`` $Description.",
-            "& `"`$PSScriptRoot\..\zig\zig.exe`" $ZigSubcommand @args",
-            "exit `$LASTEXITCODE"
-        ) -join "`r`n"
-        Set-Content -LiteralPath $ps1Path -Value $ps1Body -Encoding ASCII
-    }
-
-    $cmdPath = Join-Path $WrappersRoot "$ToolName.cmd"
-    if (-not (Test-Path -LiteralPath $cmdPath -PathType Leaf)) {
-        $cmdBody = @(
-            "@echo off",
-            "setlocal",
-            'set "_PS="',
-            'for %%I in (pwsh.exe) do set "_PS=%%~$PATH:I"',
-            'if not defined _PS if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "_PS=%ProgramFiles%\PowerShell\7\pwsh.exe"',
-            'if not defined _PS set "_PS=powershell"',
-            "`"%_PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$ToolName.ps1`" %*"
-        ) -join "`r`n"
-        Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
-    }
-}
-
-function Ensure-ZigDlltoolWrapper {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$WrappersRoot
-    )
-
-    New-ZigToolWrapperIfMissing `
-        -WrappersRoot $WrappersRoot `
-        -ToolName "zig-dlltool" `
-        -ZigSubcommand "dlltool" `
-        -Description "for Windows GNU import library generation"
-}
-
 function Get-NormalizedCargoSectionName {
     param([AllowEmptyString()][string]$SectionName)
 
@@ -128,7 +71,7 @@ function Test-CargoWindowsHostTargetSectionName {
     param([AllowEmptyString()][string]$SectionName)
 
     $name = Get-NormalizedCargoSectionName -SectionName $SectionName
-    return ($name -eq "target.x86_64-pc-windows-gnu" -or $name -eq "target.x86_64-pc-windows-msvc")
+    return ($name -match '^target\.x86_64-pc-windows-[a-z0-9_-]+$')
 }
 
 function Repair-CargoHostTargetConfigFile {
@@ -161,7 +104,7 @@ function Repair-CargoHostTargetConfigFile {
             continue
         }
 
-        if ($currentSection -eq "build" -and $trimmed -match '^(?i)target\s*=\s*(["'']?)x86_64-pc-windows-(gnu|msvc)\1\s*(?:#.*)?$') {
+        if ($currentSection -eq "build" -and $trimmed -match '(?i)^\s*target\s*=\s*(["'']?)x86_64-pc-windows-[a-z0-9_-]+\1\s*(?:#.*)?$') {
             $changed = $true
             continue
         }

@@ -76,7 +76,6 @@ if (-not (Test-Path -LiteralPath $zigArPath)) {
 if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
     throw "Missing ranlib wrapper: $zigRanlibPath"
 }
-Ensure-ZigDlltoolWrapper -WrappersRoot $wrappersRoot
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"

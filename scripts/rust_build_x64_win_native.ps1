@@ -122,7 +122,7 @@ foreach ($a in $args) {
     $filtered.Add($arg)
 }
 
-& '__ZIG_EXE__' cc -target x86_64-windows @filtered
+& '__ZIG_EXE__' cc -target x86_64-windows-msvc @filtered
 exit $LASTEXITCODE
 '@
 $x64WrapperPs1Body = $x64WrapperPs1BodyTemplate.Replace('__ZIG_EXE__', $zigExeEscaped)
