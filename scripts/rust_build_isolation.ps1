@@ -81,6 +81,21 @@ function Repair-CargoHostTargetConfigFile {
         return $false
     }
 
+    # A Cargo config is at most a few kilobytes. A multi-megabyte file is either
+    # corrupt or not a real config; reading it line by line can take minutes and
+    # has frozen the installer. Skip it rather than risk an apparent hang.
+    $maxConfigBytes = 1MB
+    try {
+        $fileLength = (Get-Item -LiteralPath $ConfigPath -ErrorAction Stop).Length
+        if ($fileLength -gt $maxConfigBytes) {
+            Write-Warning "Skipping oversized Cargo config ($fileLength bytes): $ConfigPath"
+            return $false
+        }
+    }
+    catch {
+        return $false
+    }
+
     $lines = @(Get-Content -LiteralPath $ConfigPath -Encoding UTF8)
     $kept = New-Object System.Collections.Generic.List[string]
     $insideRemovedSection = $false
@@ -124,7 +139,14 @@ function Repair-CargoHostTargetConfigFile {
 function Repair-CargoHostTargetConfig {
     param(
         [AllowEmptyString()][string]$ToolkitRoot,
-        [AllowEmptyString()][string]$ProjectRoot
+        [AllowEmptyString()][string]$ProjectRoot,
+
+        # The offline installer must only repair the toolkit it is deploying. The
+        # ambient CARGO_HOME may point at the user's global config (potentially a
+        # huge or locked file), which is none of the installer's business and has
+        # frozen finalization. Build scripts that run inside the toolkit's own
+        # CARGO_HOME leave this off so their cargo-home config is still repaired.
+        [switch]$SkipAmbientCargoHome
     )
 
     if (-not [string]::IsNullOrWhiteSpace($ToolkitRoot)) {
@@ -133,7 +155,7 @@ function Repair-CargoHostTargetConfig {
         Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path $ToolkitRoot "tools\cargo-home\config") | Out-Null
     }
 
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:CARGO_HOME)) {
+    if (-not $SkipAmbientCargoHome -and -not [string]::IsNullOrWhiteSpace([string]$env:CARGO_HOME)) {
         Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config.toml") | Out-Null
         Repair-CargoHostTargetConfigFile -ConfigPath (Join-Path ([string]$env:CARGO_HOME) "config") | Out-Null
     }

@@ -212,6 +212,64 @@ finally {
     Remove-Item -LiteralPath $repairTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# Regression: a pathologically large config (e.g. a corrupt multi-MB global
+# CARGO_HOME config) must be skipped, not read line by line, or finalization
+# freezes the installer. Also verify the installer can scope repair to the
+# toolkit and never touch the ambient CARGO_HOME.
+$guardTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cargo-host-config-guard-" + [guid]::NewGuid().ToString("N"))
+$savedCargoHome = $env:CARGO_HOME
+try {
+    New-Item -ItemType Directory -Path $guardTestRoot -Force | Out-Null
+
+    $oversizedConfigPath = Join-Path $guardTestRoot "config.toml"
+    $stream = [System.IO.File]::Create($oversizedConfigPath)
+    try {
+        $stream.SetLength(2MB)
+    }
+    finally {
+        $stream.Dispose()
+    }
+    $oversizedBefore = (Get-Item -LiteralPath $oversizedConfigPath).Length
+
+    $guardStart = [System.Diagnostics.Stopwatch]::StartNew()
+    $oversizedRepaired = Repair-CargoHostTargetConfigFile -ConfigPath $oversizedConfigPath
+    $guardStart.Stop()
+
+    Assert-True -Condition ($oversizedRepaired -eq $false) -Message "Cargo repair should skip an oversized config without modifying it."
+    Assert-True -Condition ((Get-Item -LiteralPath $oversizedConfigPath).Length -eq $oversizedBefore) -Message "Cargo repair should leave an oversized config untouched."
+    Assert-True -Condition ($guardStart.Elapsed.TotalSeconds -lt 5) -Message "Cargo repair should reject an oversized config quickly."
+
+    # Point the ambient CARGO_HOME at an oversized config; -SkipAmbientCargoHome
+    # must keep the installer from ever reading it.
+    $ambientCargoHome = Join-Path $guardTestRoot "ambient-cargo-home"
+    New-Item -ItemType Directory -Path $ambientCargoHome -Force | Out-Null
+    $ambientConfigPath = Join-Path $ambientCargoHome "config.toml"
+    $ambientStream = [System.IO.File]::Create($ambientConfigPath)
+    try {
+        $ambientStream.SetLength(2MB)
+    }
+    finally {
+        $ambientStream.Dispose()
+    }
+    $env:CARGO_HOME = $ambientCargoHome
+
+    $skipStart = [System.Diagnostics.Stopwatch]::StartNew()
+    Repair-CargoHostTargetConfig -ToolkitRoot $guardTestRoot -ProjectRoot "" -SkipAmbientCargoHome
+    $skipStart.Stop()
+
+    Assert-True -Condition ((Get-Item -LiteralPath $ambientConfigPath).Length -eq 2MB) -Message "Scoped repair should not modify the ambient CARGO_HOME config."
+    Assert-True -Condition ($skipStart.Elapsed.TotalSeconds -lt 5) -Message "Scoped repair should not read the ambient CARGO_HOME config."
+}
+finally {
+    if ($null -eq $savedCargoHome) {
+        Remove-Item -LiteralPath "Env:CARGO_HOME" -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CARGO_HOME = $savedCargoHome
+    }
+    Remove-Item -LiteralPath $guardTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Assert-EnvBeforeCargoBuild `
     -ScriptPath (Join-Path $repoRoot "scripts\rust_build_armv7.ps1") `
     -LinkerEnvName "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER" `

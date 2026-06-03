@@ -57,6 +57,127 @@ function Invoke-NativeCapture {
     return @($output)
 }
 
+function Stop-ProcessTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    # The rustup/cargo proxies spawn real toolchain child processes; kill the
+    # whole tree so a stuck validation can never keep the installer alive.
+    try {
+        $taskkill = Join-Path $env:WINDIR "System32\taskkill.exe"
+        if (Test-Path -LiteralPath $taskkill) {
+            Start-Process -FilePath $taskkill -ArgumentList @("/F", "/T", "/PID", $Process.Id) `
+                -NoNewWindow -Wait -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+    catch {
+    }
+
+    try {
+        if (-not $Process.HasExited) {
+            $Process.Kill()
+        }
+    }
+    catch {
+    }
+}
+
+function Start-FinalizeWatchdog {
+    param(
+        [int]$TimeoutSeconds = 150
+    )
+
+    # Absolute backstop against a frozen wizard. Inno Setup launches this script
+    # with waituntilterminated, so if validation (or anything else) ever wedges,
+    # the installer hangs forever. A separate, detached PowerShell process force
+    # terminates this finalize process tree once the deadline passes. All toolkit
+    # files are deployed and configured *before* validation runs, so a hard kill
+    # still leaves a fully working installation behind.
+    try {
+        $selfPid = $PID
+        $taskkill = Join-Path $env:WINDIR "System32\taskkill.exe"
+        $psExe = Join-Path $PSHOME "powershell.exe"
+        if (-not (Test-Path -LiteralPath $psExe)) {
+            $psExe = "powershell.exe"
+        }
+
+        $command = "Start-Sleep -Seconds $TimeoutSeconds; & '$taskkill' /F /T /PID $selfPid"
+        return Start-Process -FilePath $psExe `
+            -ArgumentList @("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", $command) `
+            -WindowStyle Hidden -PassThru
+    }
+    catch {
+        return $null
+    }
+}
+
+function Stop-FinalizeWatchdog {
+    param(
+        $Watchdog
+    )
+
+    if ($null -eq $Watchdog) {
+        return
+    }
+
+    try {
+        if (-not $Watchdog.HasExited) {
+            Stop-Process -Id $Watchdog.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+    }
+}
+
+function Invoke-NativeWithTimeout {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [string[]]$Arguments = @(),
+
+        [int]$TimeoutSeconds = 30
+    )
+
+    # Validation must never block the installer UI. Run the tool out-of-band,
+    # capture its output, and enforce a hard timeout (works on Windows
+    # PowerShell 5.1, which the installer uses, and on PowerShell 7+).
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -PassThru `
+            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Stop-ProcessTree -Process $process
+            throw "Command timed out after ${TimeoutSeconds}s: $FilePath $($Arguments -join ' ')"
+        }
+
+        # The direct process has exited and its output was redirected to files
+        # by the OS, so the files are already complete. Use a *bounded* flush
+        # wait only, never the parameterless WaitForExit(): a lingering toolchain
+        # grandchild that inherited the file handles must not be able to block us.
+        [void]$process.WaitForExit(5000)
+
+        $stdout = @()
+        $stderr = @()
+        if (Test-Path -LiteralPath $stdoutFile) { $stdout = @(Get-Content -LiteralPath $stdoutFile) }
+        if (Test-Path -LiteralPath $stderrFile) { $stderr = @(Get-Content -LiteralPath $stderrFile) }
+
+        if ($process.ExitCode -ne 0) {
+            $detail = (@($stdout) + @($stderr)) -join [Environment]::NewLine
+            throw "Command failed ($($process.ExitCode)): $FilePath $($Arguments -join ' ')`n$detail"
+        }
+
+        return @($stdout)
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-SelectedComponentList {
     param(
         [string]$SelectedComponents
@@ -249,7 +370,10 @@ function Repair-InstalledCargoHostConfig {
     }
 
     . $isolationScript
-    Repair-CargoHostTargetConfig -ToolkitRoot $InstallRoot -ProjectRoot ""
+    # Only repair the freshly deployed toolkit. Never read the user's ambient
+    # CARGO_HOME config: it may be a large or locked file that would hang the
+    # installer (the toolkit's own cargo-home config is covered by ToolkitRoot).
+    Repair-CargoHostTargetConfig -ToolkitRoot $InstallRoot -ProjectRoot "" -SkipAmbientCargoHome
 }
 
 function Test-OfflineInstall {
@@ -283,11 +407,15 @@ function Test-OfflineInstall {
     $env:RUSTUP_HOME = Join-Path $InstallRoot "tools\rustup-home"
     $env:CARGO_HOME = Join-Path $InstallRoot "tools\cargo-home"
     $env:RUSTUP_TOOLCHAIN = $script:HostToolchain
+    # Never let a rustup/cargo proxy reach out to the network during validation:
+    # an offline auto-install attempt is exactly what used to hang the installer.
+    $env:RUSTUP_AUTO_INSTALL = "0"
+    $env:CARGO_NET_OFFLINE = "true"
 
-    $cargoVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeCapture -FilePath $cargoExe -Arguments @("-V"))).Trim()
-    $rustcVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeCapture -FilePath $rustcExe -Arguments @("-V"))).Trim()
-    $rustcVerbose = Invoke-NativeCapture -FilePath $rustcExe -Arguments @("-vV")
-    $installedTargets = @(Invoke-NativeCapture -FilePath $rustupExe -Arguments @("target", "list", "--installed"))
+    $cargoVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeWithTimeout -FilePath $cargoExe -Arguments @("-V") -TimeoutSeconds 60)).Trim()
+    $rustcVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeWithTimeout -FilePath $rustcExe -Arguments @("-V") -TimeoutSeconds 60)).Trim()
+    $rustcVerbose = Invoke-NativeWithTimeout -FilePath $rustcExe -Arguments @("-vV") -TimeoutSeconds 60
+    $installedTargets = @(Invoke-NativeWithTimeout -FilePath $rustupExe -Arguments @("target", "list", "--installed") -TimeoutSeconds 60)
 
     if ($cargoVersion -notmatch "^cargo ") {
         throw "cargo -V returned unexpected output: $cargoVersion"
@@ -331,10 +459,52 @@ function Invoke-FinalizeOfflineInstall {
     New-InstallManifest -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList -InstallScope $InstallScope
 
     if ($Validate) {
-        Test-OfflineInstall -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
+        # The toolkit files are already deployed and configured at this point.
+        # Validation is a best-effort health check: it is bounded by per-command
+        # timeouts and, even if it fails, must never abort or hang the installer.
+        try {
+            Test-OfflineInstall -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
+        }
+        catch {
+            $warningPath = Join-Path $resolvedInstallRoot "install-validation-warning.txt"
+            $warningText = @(
+                "Offline install validation did not complete cleanly.",
+                "Generated at: $((Get-Date).ToString('o'))",
+                "Detail: $($_.Exception.Message)"
+            ) -join [Environment]::NewLine
+            try {
+                Set-Content -LiteralPath $warningPath -Value $warningText -Encoding UTF8
+            }
+            catch {
+            }
+            Write-Warning $warningText
+        }
     }
 }
 
 if ($env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ne "1") {
-    Invoke-FinalizeOfflineInstall -InstallRoot $InstallRoot -SelectedComponents $SelectedComponents -InstallScope $InstallScope -Validate:$Validate
+    # Only the validating installer run can block on toolchain processes; the
+    # config-only path is pure file IO and needs no watchdog.
+    $watchdog = $null
+    if ($Validate) {
+        $watchdog = Start-FinalizeWatchdog -TimeoutSeconds 150
+    }
+
+    $exitCode = 0
+    try {
+        Invoke-FinalizeOfflineInstall -InstallRoot $InstallRoot -SelectedComponents $SelectedComponents -InstallScope $InstallScope -Validate:$Validate
+    }
+    catch {
+        # Surface the error for logging, but always terminate so the installer's
+        # synchronous wait can return instead of freezing the wizard window.
+        Write-Error $_.Exception.Message
+        $exitCode = 1
+    }
+    finally {
+        # Cancel the backstop on normal completion so it does not linger and
+        # later kill an unrelated, PID-recycled process.
+        Stop-FinalizeWatchdog -Watchdog $watchdog
+    }
+
+    exit $exitCode
 }

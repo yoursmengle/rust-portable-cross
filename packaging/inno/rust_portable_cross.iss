@@ -58,7 +58,7 @@ Name: "{group}\使用说明"; Filename: "{app}\docs\README-offline.md"
 Name: "{group}\卸载 Rust 便携交叉编译工具包"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; StatusMsg: "正在完成离线工具链配置并校验..."; Flags: runhidden waituntilterminated
 
 [Code]
 const
