@@ -152,6 +152,9 @@ $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
     -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
     -Flag "-C linker-flavor=lld-link"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
+    -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
+    -Flag "-C target-feature=+crt-static"
 $env:CC = "x64-windows-msvc-zig-cc.cmd"
 $env:HOST_CC = "x64-windows-msvc-zig-cc.cmd"
 $env:CC_x86_64_pc_windows_msvc = "x64-windows-msvc-zig-cc.cmd"
