@@ -9,6 +9,7 @@ This installer deploys a prebuilt offline Rust toolchain for Windows.
 - You can choose support for:
   - `armv7`
   - `aarch64`
+  - `thumbv7em` (ARM Cortex-M4F/M7 bare-metal, `thumbv7em-none-eabihf`)
 - `armv7` is selected by default.
 - Only the selected target payloads are installed.
 
@@ -35,9 +36,18 @@ Run the build scripts from inside your Rust project directory:
 
 - `.\scripts\rust_build_armv7.ps1`
 - `.\scripts\rust_build_aarch64.ps1`
+- `.\scripts\rust_build_thumbv7em.ps1`
 - `.\scripts\rust_build_x64_win_native.ps1 -ProjectPath <your-project-path>`
 
 If a target was not selected during installation, its build script or wrapper files may be absent.
+
+### Notes for `thumbv7em-none-eabihf`
+
+- This is a bare-metal (`no_std`) ARM Cortex-M4F/M7 target. It links with the
+  bundled `rust-lld`, so it needs no Zig wrapper or external C cross-toolchain.
+- Building a firmware binary still requires your project to supply its own
+  linker script (for example `memory.x` via `cortex-m-rt`); the toolkit only
+  provides the compiler and the precompiled `core`/`alloc` for the target.
 
 ## Notes
 

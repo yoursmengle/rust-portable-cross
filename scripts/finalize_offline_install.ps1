@@ -429,7 +429,7 @@ function Test-OfflineInstall {
         throw "rustc host triple does not match the expected MSVC host."
     }
 
-    foreach ($targetName in @("armv7", "aarch64")) {
+    foreach ($targetName in @("armv7", "aarch64", "thumbv7em")) {
         $triple = [string]$Layout.targets.$targetName.triple
         $shouldExist = $SelectedComponents -contains $targetName
         $isInstalled = $installedTargets -contains $triple

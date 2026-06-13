@@ -285,4 +285,44 @@ Assert-EnvBeforeCargoBuild `
 Assert-X64WinEnvBeforeCargoBuild `
     -ScriptPath (Join-Path $repoRoot "scripts\rust_build_x64_win_native.ps1")
 
+function Assert-Thumbv7emEnvBeforeCargoBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath
+    )
+
+    $body = Get-Content -LiteralPath $ScriptPath -Raw -Encoding UTF8
+    $cargoBuildIndex = $body.IndexOf("cargo build")
+
+    Assert-True -Condition ($cargoBuildIndex -gt 0) -Message "$ScriptPath should invoke cargo build."
+
+    $beforeCargoBuild = $body.Substring(0, $cargoBuildIndex)
+    Assert-True `
+        -Condition ($beforeCargoBuild -match "rust_build_isolation\.ps1") `
+        -Message "$ScriptPath should load the target environment isolation helper before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
+        -Message "$ScriptPath should clear stale target environment before cargo build."
+    Assert-True `
+        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Message "$ScriptPath should restore target environment in a finally block."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
+        -Message "$ScriptPath should force Windows MSVC host build scripts to use rust-lld before cargo build."
+    Assert-True `
+        -Condition ($body -match "cargo build --release --target thumbv7em-none-eabihf") `
+        -Message "$ScriptPath should build the bare-metal thumbv7em-none-eabihf target."
+    # The bare-metal target links with rust-lld and must not wire a Zig/C cross
+    # toolchain the way the musl targets do.
+    Assert-True `
+        -Condition ($body -notmatch "zig-ar\.cmd") `
+        -Message "$ScriptPath should not wire a Zig archive wrapper for the bare-metal target."
+    Assert-True `
+        -Condition ($body -notmatch "CARGO_TARGET_THUMBV7EM_NONE_EABIHF_LINKER") `
+        -Message "$ScriptPath should leave the thumbv7em linker at its rust-lld default."
+}
+
+Assert-Thumbv7emEnvBeforeCargoBuild `
+    -ScriptPath (Join-Path $repoRoot "scripts\rust_build_thumbv7em.ps1")
+
 Write-Host "rust_build_env tests passed."

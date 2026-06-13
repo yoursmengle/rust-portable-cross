@@ -67,15 +67,22 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "sample\Cargo.toml")
     New-TestFile -Path (Join-Path $toolkitRoot "sample\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "sample\target\release\sample.exe") -Content "do not stage"
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\.cargo\config.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\.gitignore") -Content "target/"
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\Cargo.lock")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\lib.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win_native.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_aarch64.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_thumbv7em.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_armv7.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_aarch64.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_x64_win.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_thumbv7em.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup\rustup.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\cargo.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\rustc.exe")
@@ -106,6 +113,8 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-armv7-unknown-linux-musleabihf")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\aarch64-unknown-linux-musl\lib\std.rlib")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-aarch64-unknown-linux-musl")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf\lib\libcore.rlib")
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-thumbv7em-none-eabihf")
 
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 
@@ -122,6 +131,9 @@ try {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\.cargo\config.toml")) -Message "core payload should contain the sample cargo config"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample\src\main.rs")) -Message "core payload should contain the sample source"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "sample\target"))) -Message "core payload should not contain sample build artifacts"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample_embedded\Cargo.toml")) -Message "core payload should contain the embedded sample manifest"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "sample_embedded\src\lib.rs")) -Message "core payload should contain the embedded sample source"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "check_tool_thumbv7em.ps1")) -Message "core payload should contain the thumbv7em check tool"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "Activate Rust Portable Cross.ps1")) -Message "core payload should contain the activation entry script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ar.cmd")) -Message "core payload should contain zig wrapper cmd scripts"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-ranlib.ps1")) -Message "core payload should contain zig wrapper ps1 scripts"
@@ -130,6 +142,7 @@ try {
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\$legacyHostWrapperBase.cmd"))) -Message "core payload should not contain non-MSVC Windows host wrappers"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\std.rlib")) -Message "core payload should contain the host rustlib"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf"))) -Message "core payload should exclude the thumbv7em rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\scripts\rust_build_armv7.ps1")) -Message "armv7 payload should contain its build script"
@@ -138,6 +151,9 @@ try {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\scripts\rust_build_aarch64.ps1")) -Message "aarch64 payload should contain its build script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.cmd")) -Message "aarch64 payload should contain its wrapper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.ps1")) -Message "aarch64 payload should contain its PowerShell wrapper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\scripts\rust_build_thumbv7em.ps1")) -Message "thumbv7em payload should contain its build script"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf\lib\libcore.rlib")) -Message "thumbv7em payload should contain its rustlib"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\wrappers"))) -Message "thumbv7em payload should not ship a Zig cross-compiler wrapper"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win"))) -Message "staging should not create an x64_win payload"
 
     $layout = Get-Content -LiteralPath (Join-Path $coreRoot "install-layout.json") -Raw | ConvertFrom-Json -Depth 6
@@ -157,6 +173,9 @@ try {
     Assert-True -Condition ($layout.componentFiles.armv7 -contains "tools/wrappers/arm-linux-musleabihf-gcc.ps1") -Message "layout should record armv7 PowerShell wrapper"
     Assert-True -Condition ($layout.componentFiles.aarch64 -contains "scripts/rust_build_aarch64.ps1") -Message "layout should record aarch64-owned files"
     Assert-True -Condition ($layout.componentFiles.aarch64 -contains "tools/wrappers/aarch64-linux-musl-gcc.ps1") -Message "layout should record aarch64 PowerShell wrapper"
+    Assert-True -Condition ($layout.componentFiles.thumbv7em -contains "scripts/rust_build_thumbv7em.ps1") -Message "layout should record thumbv7em-owned files"
+    Assert-Equal -Actual $layout.targets.thumbv7em.triple -Expected "thumbv7em-none-eabihf" -Message "layout should record the thumbv7em triple"
+    Assert-Equal -Actual $layout.targets.thumbv7em.rustComponent -Expected "rust-std-thumbv7em-none-eabihf" -Message "layout should record the thumbv7em rust component"
     Assert-True -Condition (-not ($layout.componentFiles.PSObject.Properties.Name -contains "x64_win")) -Message "layout should not record a removed x64_win component"
 }
 finally {

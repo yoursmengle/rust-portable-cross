@@ -40,6 +40,7 @@ Name: "custom"; Description: "自定义安装"; Flags: iscustom
 Name: "core"; Description: "核心工具包文件"; Types: default custom; Flags: fixed
 Name: "armv7"; Description: "ARMv7 Linux 工具(HEC1020/HEC1030)"; Types: default custom
 Name: "aarch64"; Description: "AArch64 Linux 工具(HEC2020/HEC3000/HEC3016)"; Types: custom
+Name: "thumbv7em"; Description: "ARM Cortex-M4F/M7 裸机工具(thumbv7em-none-eabihf)"; Types: custom
 
 [Dirs]
 Name: "{app}\tools\cargo-home\registry"
@@ -51,6 +52,7 @@ Name: "{app}\tools\zig-global-cache"
 Source: "{#StageRoot}\core\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageRoot}\targets\armv7\*"; DestDir: "{app}"; Components: armv7; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageRoot}\targets\aarch64\*"; DestDir: "{app}"; Components: aarch64; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageRoot}\targets\thumbv7em\*"; DestDir: "{app}"; Components: thumbv7em; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\激活 Rust 便携交叉编译环境 (PowerShell)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -File ""{app}\Activate Rust Portable Cross.ps1"""
@@ -228,6 +230,9 @@ begin
 
   if WizardIsComponentSelected('aarch64') then
     Value := Value + 'aarch64,';
+
+  if WizardIsComponentSelected('thumbv7em') then
+    Value := Value + 'thumbv7em,';
 
   if (Length(Value) > 0) and (Value[Length(Value)] = ',') then
     Delete(Value, Length(Value), 1);

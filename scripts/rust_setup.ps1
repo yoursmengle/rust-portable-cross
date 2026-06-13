@@ -481,12 +481,13 @@ function Invoke-RustToolkitSetup {
 
     Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
 
-    Write-Step "Installing Linux musl targets"
+    Write-Step "Installing Linux musl and bare-metal embedded targets"
     Invoke-Native -FilePath $rustupCmd -Arguments @(
         "target",
         "add",
         "armv7-unknown-linux-musleabihf",
-        "aarch64-unknown-linux-musl"
+        "aarch64-unknown-linux-musl",
+        "thumbv7em-none-eabihf"
     )
 
     $installZig = $true
@@ -662,7 +663,8 @@ function Invoke-RustToolkitSetup {
 
     foreach ($requiredTarget in @(
         "armv7-unknown-linux-musleabihf",
-        "aarch64-unknown-linux-musl"
+        "aarch64-unknown-linux-musl",
+        "thumbv7em-none-eabihf"
     )) {
         if ($installedTargets -notcontains $requiredTarget) {
             throw "Missing required installed target: $requiredTarget"

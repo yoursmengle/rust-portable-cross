@@ -38,6 +38,18 @@ $script:TargetDefinitions = [ordered]@{
             "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
         )
     }
+    thumbv7em = @{
+        Triple = "thumbv7em-none-eabihf"
+        RustComponent = "rust-std-thumbv7em-none-eabihf"
+        BuildScripts = @("scripts/rust_build_thumbv7em.ps1")
+        # Bare-metal target: links with the bundled rust-lld, so it ships no Zig
+        # cross-compiler wrapper. Only the precompiled core/alloc rustlib and its
+        # manifest are target-specific payloads.
+        FilePaths = @(
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/thumbv7em-none-eabihf",
+            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-thumbv7em-none-eabihf"
+        )
+    }
 }
 
 function Write-Step {
@@ -263,12 +275,14 @@ function Copy-HostToolchainCore {
     $excludedRelativePaths = @(
         "lib/rustlib/components",
         "lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf",
-        "lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
+        "lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl",
+        "lib/rustlib/manifest-rust-std-thumbv7em-none-eabihf"
     )
 
     $excludedPrefixes = @(
         "lib/rustlib/armv7-unknown-linux-musleabihf/",
-        "lib/rustlib/aarch64-unknown-linux-musl/"
+        "lib/rustlib/aarch64-unknown-linux-musl/",
+        "lib/rustlib/thumbv7em-none-eabihf/"
     )
 
     $files = Get-ChildItem -LiteralPath $toolchainRoot -Recurse -File
@@ -371,6 +385,7 @@ function Invoke-PrepareOfflineRelease {
         (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_x64_win.ps1"),
+        (Join-Path $paths.ToolkitRoot "check_tool_thumbv7em.ps1"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\cargo.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustc.exe"),
         (Join-Path $paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"),
@@ -411,9 +426,15 @@ function Invoke-PrepareOfflineRelease {
         "sample/Cargo.lock",
         "sample/Cargo.toml",
         "sample/src",
+        "sample_embedded/.cargo",
+        "sample_embedded/.gitignore",
+        "sample_embedded/Cargo.lock",
+        "sample_embedded/Cargo.toml",
+        "sample_embedded/src",
         "check_tool_armv7.ps1",
         "check_tool_aarch64.ps1",
         "check_tool_x64_win.ps1",
+        "check_tool_thumbv7em.ps1",
         "tools/rustup",
         "tools/cargo-home/bin",
         "tools/zig",

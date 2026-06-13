@@ -1,0 +1,16 @@
+[package]
+name = "sample_embedded"
+version = "0.1.0"
+edition = "2021"
+
+# Bare-metal (no_std) smoke-test crate for the thumbv7em-none-eabihf target.
+# Built as an rlib so it compiles fully offline against `core` alone, without a
+# linker script or any external dependency. This exercises the installed
+# rust-std-thumbv7em-none-eabihf component end to end.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "s"

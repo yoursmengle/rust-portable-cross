@@ -8,8 +8,9 @@ Supported cross-compilation targets:
 |---|---|
 | `armv7-unknown-linux-musleabihf` | ARMv7 Linux (musl libc, hard-float) |
 | `aarch64-unknown-linux-musl` | AArch64 / ARM64 Linux (musl libc) |
+| `thumbv7em-none-eabihf` | ARM Cortex-M4F/M7 bare-metal (`no_std`, hard-float) |
 
-Target builds are powered by [Zig](https://ziglang.org/) acting as the C linker, eliminating the need for host-installed GCC/Clang cross-toolchains.
+The Linux targets are powered by [Zig](https://ziglang.org/) acting as the C linker, eliminating the need for host-installed GCC/Clang cross-toolchains. The bare-metal `thumbv7em-none-eabihf` target links with the bundled `rust-lld` and needs no Zig wrapper or external C toolchain.
 
 ---
 
@@ -33,7 +34,7 @@ Run once from the repository root to download and install all toolchain componen
 
 This will:
 - Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-msvc` toolchain into `tools/`
-- Add the `armv7-unknown-linux-musleabihf` and `aarch64-unknown-linux-musl` targets
+- Add the `armv7-unknown-linux-musleabihf`, `aarch64-unknown-linux-musl`, and `thumbv7em-none-eabihf` targets
 - Download and extract Zig 0.13.0 into `tools/zig/`
 - Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`
 
@@ -79,7 +80,16 @@ cd my_project
 rust_build_armv7.ps1
 ```
 
+```powershell
+# Build for ARM Cortex-M4F/M7 bare metal (no_std)
+cd my_firmware_project
+. D:\rust-portable-cross\scripts\rust_env.ps1
+rust_build_thumbv7em.ps1
+```
+
 Build outputs are placed under `target/<triple>/release/` inside your project directory.
+
+> **Note:** `thumbv7em-none-eabihf` is a bare-metal `no_std` target. Linking a firmware binary still requires your project to provide its own linker script (e.g. `memory.x` via `cortex-m-rt`); the toolkit supplies the compiler and the precompiled `core`/`alloc` only.
 
 ---
 
@@ -90,15 +100,19 @@ rust-portable-cross/
 ├── config/
 │   └── .cargo/
 │       └── config.toml        # Cargo linker config for supported targets
-├── sample/                    # Minimal sample Rust project
+├── sample/                    # Minimal sample Rust project (std)
 │   ├── Cargo.toml
 │   └── src/main.rs
+├── sample_embedded/           # Minimal no_std sample for thumbv7em-none-eabihf
+│   ├── Cargo.toml
+│   └── src/lib.rs
 ├── scripts/
-│   ├── rust_setup.ps1         # One-time toolchain installation
-│   ├── rust_env.ps1           # Environment activation (dot-source)
-│   ├── rust_build_aarch64.ps1 # Cross-build for aarch64-unknown-linux-musl
-│   ├── rust_build_armv7.ps1   # Cross-build for armv7-unknown-linux-musleabihf
-│   └── rust_setup.tests.ps1   # Unit tests for setup script logic
+│   ├── rust_setup.ps1          # One-time toolchain installation
+│   ├── rust_env.ps1            # Environment activation (dot-source)
+│   ├── rust_build_aarch64.ps1  # Cross-build for aarch64-unknown-linux-musl
+│   ├── rust_build_armv7.ps1    # Cross-build for armv7-unknown-linux-musleabihf
+│   ├── rust_build_thumbv7em.ps1 # Bare-metal build for thumbv7em-none-eabihf
+│   └── rust_setup.tests.ps1    # Unit tests for setup script logic
 └── tools/                     # All toolchain binaries (git-ignored binaries)
     ├── cargo-home/            # CARGO_HOME
     ├── rustup-home/           # RUSTUP_HOME
@@ -134,9 +148,9 @@ Must be **dot-sourced** so that environment variables are set in the calling ses
 
 Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, and updates `PATH`.
 
-### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1`
+### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1` / `rust_build_thumbv7em.ps1`
 
-Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`.
+Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`. `rust_build_thumbv7em.ps1` builds the bare-metal `thumbv7em-none-eabihf` target with the bundled `rust-lld`; it sets up no Zig/C cross-toolchain.
 
 If you want to build `x86_64-pc-windows-msvc` without installing system Rust, use:
 
