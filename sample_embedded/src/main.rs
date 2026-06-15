@@ -15,10 +15,10 @@
 //!   application lives at `0x08008000..0x0803FFFF` (224 KiB). `Reset` also
 //!   points the vector table there via `SCB->VTOR`, exactly as the C app's
 //!   `Main_HwInit` does.
-//! * **LED pins, active-low.** `D16` (FAULT) is `PF14` and `D17` (STATUS) is
-//!   `PG15` (see `led_pins[]` in hem6801c_app). The C driver
-//!   `DRV_PANEL_LED_Onoff` lights a panel LED by driving its pin *low*
-//!   (`gpio_bit_reset`), so this example does the same.
+//! * **LED pins, active-high.** `D16` (FAULT) is `PF14` and `D17` (STATUS) is
+//!   `PG15`. The C application drives these LEDs on with `gpio_bit_set`
+//!   (pin high), e.g. `led_status()` on `PF14` and `led_can()` on `PG15`, so
+//!   this example lights them the same way: a high level turns the LED on.
 //!
 //! Timing is derived from SysTick after forcing the system clock to the
 //! known 16 MHz internal oscillator (IRC16M), so the 1 Hz rate is accurate
@@ -31,6 +31,7 @@
 //! converts into the `.bin` / `.hex` images you download to the board (see
 //! `make_image.ps1` and `README.md`).
 
+use core::arch::asm;
 use core::panic::PanicInfo;
 use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
@@ -50,6 +51,10 @@ const APP_BASE: u32 = 0x0800_8000;
 const SYST_CSR: *mut u32 = 0xE000_E010 as *mut u32; // control & status
 const SYST_RVR: *mut u32 = 0xE000_E014 as *mut u32; // reload value
 const SYST_CVR: *mut u32 = 0xE000_E018 as *mut u32; // current value
+
+// NVIC interrupt clear-enable / clear-pending arrays (8 x 32-bit registers).
+const NVIC_ICER: *mut u32 = 0xE000_E180 as *mut u32;
+const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
 
 // RCU (RCC-compatible) clock control.
 const RCU_CTL: *mut u32 = 0x4002_3800 as *mut u32; // RCU_CTL  (osc enable/ready)
@@ -90,10 +95,28 @@ pub unsafe extern "C" fn Reset() -> ! {
         static __sidata: u32;
     }
 
+    // The CAN bootloader hands control over with a *soft jump*, not a hardware
+    // reset, so SysTick, the NVIC and peripheral interrupts may still be active
+    // from the boot phase. Sanitise that state first, otherwise a left-over
+    // interrupt vectors through our table (e.g. SysTick -> default handler)
+    // before the LEDs are ever configured, and the board looks "dead".
+    asm!("cpsid i", options(nomem, nostack, preserves_flags)); // mask interrupts
+
+    // Stop SysTick and clear its pending/enable state.
+    write_volatile(SYST_CSR, 0);
+
+    // Disable and clear every NVIC interrupt line (8 x 32 = 256 lines).
+    let mut i = 0;
+    while i < 8 {
+        write_volatile(NVIC_ICER.add(i), 0xFFFF_FFFF);
+        write_volatile(NVIC_ICPR.add(i), 0xFFFF_FFFF);
+        i += 1;
+    }
+
     // Relocate the vector table to the application base, matching the C app
-    // (`SCB->VTOR = FLASH_BASE | 0x00008000`). Required for interrupts to be
-    // fetched from this image rather than the bootloader's table.
+    // (`SCB->VTOR = FLASH_BASE | 0x00008000`), then ensure it has taken effect.
     write_volatile(SCB_VTOR, APP_BASE);
+    asm!("dsb", "isb", options(nomem, nostack, preserves_flags));
 
     // Zero the .bss section.
     let mut dst = addr_of_mut!(__sbss);
@@ -119,21 +142,29 @@ pub unsafe extern "C" fn Reset() -> ! {
 /// Alternate the D16 (FAULT) and D17 (STATUS) LEDs at 1 Hz, forever.
 fn main() -> ! {
     unsafe {
-        // Force a known core clock so the SysTick-based delay is accurate.
-        select_irc16m_clock();
+        // Bring the LEDs up first, independent of the clock, so GPIO never
+        // depends on the clock-switch step below.
 
-        // Enable the GPIOF and GPIOG peripheral clocks.
+        // Enable the GPIOF and GPIOG peripheral clocks. Read the register back
+        // so the enable has taken effect before the GPIO registers are touched
+        // (otherwise the first mode write can be dropped and the pin stays an
+        // input, leaving the LED dark).
         write_volatile(
             RCU_AHB1EN,
             read_volatile(RCU_AHB1EN) | GPIOF_CLOCK_EN | GPIOG_CLOCK_EN,
         );
+        let _ = read_volatile(RCU_AHB1EN);
 
         // Configure PF14 (D16) and PG15 (D17) as push-pull outputs (MODER = 01).
         configure_output(GPIOF_CTL, D16_PIN);
         configure_output(GPIOG_CTL, D17_PIN);
 
+        // Force a known core clock so the SysTick-based delay is accurate.
+        // Bounded internally, so this can never stall the blink loop.
+        select_irc16m_clock();
+
         loop {
-            // Phase A: D16 on, D17 off. (active-low: low = on, high = off)
+            // Phase A: D16 on, D17 off. (active-high: high = on, low = off)
             led_on(GPIOF_BOP, D16_PIN);
             led_off(GPIOG_BOP, D17_PIN);
             delay_ms(500);
@@ -152,14 +183,28 @@ fn main() -> ! {
 /// needed) and gives a deterministic core frequency no matter what the
 /// bootloader configured.
 unsafe fn select_irc16m_clock() {
-    // Ensure IRC16M is enabled and stable.
+    // Ensure IRC16M is enabled and stable. All waits are bounded: if the clock
+    // does not behave as expected behind the bootloader, we fall through and
+    // keep running (the blink rate may differ from 1 Hz) instead of hanging.
     write_volatile(RCU_CTL, read_volatile(RCU_CTL) | 1); // IRC16MEN
-    while read_volatile(RCU_CTL) & (1 << 1) == 0 {} // wait IRC16MSTB
+    wait_until(|| read_volatile(RCU_CTL) & (1 << 1) != 0); // IRC16MSTB
 
     // System clock switch (SCS, bits [1:0]) = 00 -> IRC16M.
     write_volatile(RCU_CFG0, read_volatile(RCU_CFG0) & !0b11);
     // Wait until the switch status (SCSS, bits [3:2]) reports IRC16M.
-    while read_volatile(RCU_CFG0) & 0b1100 != 0 {}
+    wait_until(|| read_volatile(RCU_CFG0) & 0b1100 == 0);
+}
+
+/// Spin until `cond` is true, but never longer than a fixed iteration bound.
+/// Guarantees forward progress even if a hardware flag never settles.
+unsafe fn wait_until(mut cond: impl FnMut() -> bool) {
+    let mut guard: u32 = 0;
+    while !cond() {
+        guard += 1;
+        if guard >= 2_000_000 {
+            break;
+        }
+    }
 }
 
 /// Configure a GPIO pin as a push-pull general-purpose output.
@@ -170,14 +215,14 @@ unsafe fn configure_output(ctl: *mut u32, pin: u32) {
     write_volatile(ctl, moder);
 }
 
-/// Turn an active-low LED on by driving its pin low (BOP high half = reset).
+/// Turn an active-high LED on by driving its pin high (BOP low half = set).
 unsafe fn led_on(bop: *mut u32, pin: u32) {
-    write_volatile(bop, 1 << (pin + 16));
+    write_volatile(bop, 1 << pin);
 }
 
-/// Turn an active-low LED off by driving its pin high (BOP low half = set).
+/// Turn an active-high LED off by driving its pin low (BOP high half = reset).
 unsafe fn led_off(bop: *mut u32, pin: u32) {
-    write_volatile(bop, 1 << pin);
+    write_volatile(bop, 1 << (pin + 16));
 }
 
 /// Busy-wait `ms` milliseconds using SysTick at the 16 MHz core clock.
@@ -242,6 +287,41 @@ pub static EXCEPTIONS: [Vector; 14] = [
     Vector { reserved: 0 },                      // 13 Reserved
     Vector { handler: DefaultExceptionHandler }, // 14 PendSV
     Vector { handler: DefaultExceptionHandler }, // 15 SysTick
+];
+
+/// Default target for every external interrupt slot.
+const DEFAULT_HANDLER: unsafe extern "C" fn() -> ! = DefaultExceptionHandler;
+
+/// External (peripheral) interrupts, vector-table words 16.. .
+///
+/// The GD32F427 defines 82 maskable peripheral interrupts; all route to the
+/// default handler here. A full-length table matters because the bootloader
+/// may leave an interrupt enabled: without these entries the core would fetch a
+/// vector from beyond the table (i.e. from code), jump to garbage and hang.
+#[link_section = ".vector_table.interrupts"]
+#[no_mangle]
+pub static INTERRUPTS: [unsafe extern "C" fn() -> !; 82] = [DEFAULT_HANDLER; 82];
+
+/// Application-validity signature required by the HEM6801E bootloader.
+///
+/// Before it will run the active app, the bootloader's `is_app_valid()` reads a
+/// 32-byte constant from `FL_CONST_DATA_ADDR = 0x0800A000` and byte-compares it
+/// against its own `flashConstData[]` table ("PROCSHEM6801-01-..."). In the
+/// production C application this constant happens to fall inside the image; this
+/// tiny example must place it there explicitly, otherwise `0x0800A000` stays
+/// erased (`0xFF`), the comparison fails and the bootloader never jumps to us
+/// (the LEDs then never light, even though the image itself is correct).
+///
+/// `link.x` pins this section at the absolute address `0x0800A000` (app base
+/// `0x08008000` + `0x2000`). The bytes must match the bootloader verbatim: 24
+/// significant bytes followed by 8 zero bytes.
+#[link_section = ".app_signature"]
+#[no_mangle]
+pub static APP_SIGNATURE: [u8; 32] = [
+    0x50, 0x52, 0x4F, 0x43, 0x53, 0x48, 0x45, 0x4D, // "PROCSHEM"
+    0x36, 0x38, 0x30, 0x31, 0x2D, 0x30, 0x31, 0x2D, // "6801-01-"
+    0x20, 0x24, 0x2D, 0x04, 0x2D, 0x12, 0x00, 0x00, // date stamp
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // zero padding
 ];
 
 #[panic_handler]

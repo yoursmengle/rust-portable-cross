@@ -42,6 +42,8 @@ SECTIONS
         KEEP(*(.vector_table.reset_vector));
         /* Words 2..=15: core system exceptions. */
         KEEP(*(.vector_table.exceptions));
+        /* Words 16.. : external (peripheral) interrupts. */
+        KEEP(*(.vector_table.interrupts));
     } > FLASH
 
     .text :
@@ -54,6 +56,16 @@ SECTIONS
     {
         *(.rodata .rodata.*);
         . = ALIGN(4);
+    } > FLASH
+
+    /* Bootloader application-validity signature. The HEM6801E bootloader's
+     * is_app_valid() compares 32 bytes at FL_CONST_DATA_ADDR (0x0800A000)
+     * against its flashConstData[] table; without a match it refuses to jump
+     * to this app. Pin the bytes (see APP_SIGNATURE in src/main.rs) at that
+     * absolute address, i.e. app base (0x08008000) + 0x2000. */
+    .app_signature 0x0800A000 :
+    {
+        KEEP(*(.app_signature));
     } > FLASH
 
     /* Initialised data: lives in RAM at run time, but its initial image is
