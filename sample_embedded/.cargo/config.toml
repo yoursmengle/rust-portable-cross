@@ -1,2 +1,7 @@
 [build]
 target = "thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+# Link with the crate-supplied linker script (see build.rs / link.x). The
+# default bare-metal linker (rust-lld) is left in place.
+rustflags = ["-C", "link-arg=-Tlink.x"]

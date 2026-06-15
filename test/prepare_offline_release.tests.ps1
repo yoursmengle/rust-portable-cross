@@ -71,7 +71,12 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\.gitignore") -Content "target/"
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\Cargo.lock")
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\build.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\link.x")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\make_image.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\README.md")
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\lib.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")

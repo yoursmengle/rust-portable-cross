@@ -45,9 +45,15 @@ If a target was not selected during installation, its build script or wrapper fi
 
 - This is a bare-metal (`no_std`) ARM Cortex-M4F/M7 target. It links with the
   bundled `rust-lld`, so it needs no Zig wrapper or external C cross-toolchain.
-- Building a firmware binary still requires your project to supply its own
-  linker script (for example `memory.x` via `cortex-m-rt`); the toolkit only
-  provides the compiler and the precompiled `core`/`alloc` for the target.
+- Building a firmware binary requires a linker script. The bundled
+  `sample_embedded` crate is a complete example for the HEM6801E board
+  (GD32F427ZE) that ships its own `link.x`, so you can use it as a starting
+  point for your own firmware.
+- To produce a downloadable image, run `sample_embedded\make_image.ps1` after
+  activating the environment. It builds the firmware and uses the bundled
+  `rust-objcopy` to emit `sample_embedded.bin` and `sample_embedded.hex` for the
+  active-app slot at `0x08008000`. See `sample_embedded\README.md` for wiring and
+  flashing details.
 
 ## Notes
 

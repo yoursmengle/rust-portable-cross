@@ -1,1 +1,4 @@
 target/
+# Generated firmware images
+*.bin
+*.hex

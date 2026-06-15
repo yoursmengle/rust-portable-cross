@@ -89,7 +89,13 @@ rust_build_thumbv7em.ps1
 
 Build outputs are placed under `target/<triple>/release/` inside your project directory.
 
-> **Note:** `thumbv7em-none-eabihf` is a bare-metal `no_std` target. Linking a firmware binary still requires your project to provide its own linker script (e.g. `memory.x` via `cortex-m-rt`); the toolkit supplies the compiler and the precompiled `core`/`alloc` only.
+> **Note:** `thumbv7em-none-eabihf` is a bare-metal `no_std` target, so a
+> firmware binary needs its own linker script. The bundled `sample_embedded`
+> crate is a complete, dependency-free example for the HEM6801E board
+> (GD32F427ZE): it ships its own `link.x`, links with `rust-lld`, and its
+> `make_image.ps1` emits a downloadable `.bin`/`.hex` (via the bundled
+> `rust-objcopy`) for the active-app slot at `0x08008000`. See
+> `sample_embedded/README.md`.
 
 ---
 
@@ -103,9 +109,16 @@ rust-portable-cross/
 ├── sample/                    # Minimal sample Rust project (std)
 │   ├── Cargo.toml
 │   └── src/main.rs
-├── sample_embedded/           # Minimal no_std sample for thumbv7em-none-eabihf
-│   ├── Cargo.toml
-│   └── src/lib.rs
+├── sample_embedded/           # Flashable no_std firmware for the HEM6801E board
+│   ├── Cargo.toml             #   (GD32F427ZE, Cortex-M4F)
+│   ├── .cargo/config.toml     # Target + linker-script flags
+│   ├── build.rs               # Puts link.x on the linker search path
+│   ├── link.x                 # Memory map (app @ 0x08008000) + vector table
+│   ├── make_image.ps1         # Build + emit downloadable .bin / .hex
+│   ├── README.md              # Board wiring, build and flashing notes
+│   └── src/
+│       ├── main.rs            # Vector table, reset, D16/D17 1 Hz blink
+│       └── lib.rs             # core-only smoke-test routines
 ├── scripts/
 │   ├── rust_setup.ps1          # One-time toolchain installation
 │   ├── rust_env.ps1            # Environment activation (dot-source)

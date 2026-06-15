@@ -2,15 +2,31 @@
 name = "sample_embedded"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
-# Bare-metal (no_std) smoke-test crate for the thumbv7em-none-eabihf target.
-# Built as an rlib so it compiles fully offline against `core` alone, without a
-# linker script or any external dependency. This exercises the installed
-# rust-std-thumbv7em-none-eabihf component end to end.
+# Reusable, dependency-free `core`-only routines. Kept as an rlib so it still
+# compiles fully offline on its own and acts as the original smoke test for the
+# installed rust-std-thumbv7em-none-eabihf component.
 [lib]
 crate-type = ["rlib"]
 
+# Flashable firmware for the HEM6801E mainboard (GD32F427ZE, Cortex-M4F).
+# Builds into an ELF that `zig objcopy` turns into a downloadable .bin/.hex.
+[[bin]]
+name = "sample_embedded"
+path = "src/main.rs"
+test = false
+bench = false
+
 [dependencies]
+
+[profile.dev]
+panic = "abort"
 
 [profile.release]
 opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+# Keep DWARF in the ELF for debugging; objcopy strips it from the .bin/.hex.
+debug = true
