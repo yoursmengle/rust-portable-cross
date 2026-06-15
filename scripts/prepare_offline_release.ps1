@@ -337,6 +337,112 @@ function Get-HostRustComponents {
     )
 }
 
+function Set-ScopedEnvironmentVariable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [AllowNull()]
+        [string]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Snapshot
+    )
+
+    if (-not $Snapshot.ContainsKey($Name)) {
+        if (Test-Path -LiteralPath "Env:$Name") {
+            $Snapshot[$Name] = (Get-Item -LiteralPath "Env:$Name").Value
+        }
+        else {
+            $Snapshot[$Name] = $null
+        }
+    }
+
+    if ($null -eq $Value) {
+        Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue
+    }
+    else {
+        Set-Item -LiteralPath "Env:$Name" -Value $Value
+    }
+}
+
+function Restore-ScopedEnvironmentVariables {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Snapshot
+    )
+
+    foreach ($name in $Snapshot.Keys) {
+        $previousValue = $Snapshot[$name]
+        if ($null -eq $previousValue) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+        else {
+            Set-Item -LiteralPath "Env:$name" -Value $previousValue
+        }
+    }
+}
+
+function Ensure-TargetRustStdPayloads {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Paths
+    )
+
+    $toolchainRustlibRoot = Join-Path $Paths.ToolkitRoot "tools\rustup-home\toolchains\$script:HostToolchain\lib\rustlib"
+    $missingTriples = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($targetName in $script:TargetDefinitions.Keys) {
+        $targetTriple = $script:TargetDefinitions[$targetName].Triple
+        $tripleRoot = Join-Path $toolchainRustlibRoot $targetTriple
+        $manifestPath = Join-Path $toolchainRustlibRoot ("manifest-rust-std-{0}" -f $targetTriple)
+        if ((-not (Test-Path -LiteralPath $tripleRoot)) -or (-not (Test-Path -LiteralPath $manifestPath))) {
+            $missingTriples.Add($targetTriple)
+        }
+    }
+
+    if ($missingTriples.Count -eq 0) {
+        return
+    }
+
+    $rustupCmd = Join-Path $Paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"
+    if (-not (Test-Path -LiteralPath $rustupCmd -PathType Leaf)) {
+        throw "Missing rustup executable required for auto-heal: $rustupCmd"
+    }
+
+    Write-Step "Missing rust-std payloads detected for $($missingTriples -join ', '); attempting rustup target add"
+
+    $snapshot = @{}
+    try {
+        Set-ScopedEnvironmentVariable -Name "CARGO_HOME" -Value (Join-Path $Paths.ToolkitRoot "tools\cargo-home") -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name "RUSTUP_HOME" -Value (Join-Path $Paths.ToolkitRoot "tools\rustup-home") -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name "RUSTUP_TOOLCHAIN" -Value $script:HostToolchain -Snapshot $snapshot
+
+        if ([string]::IsNullOrWhiteSpace($env:RUSTUP_DIST_SERVER)) {
+            Set-ScopedEnvironmentVariable -Name "RUSTUP_DIST_SERVER" -Value "https://rsproxy.cn" -Snapshot $snapshot
+        }
+        if ([string]::IsNullOrWhiteSpace($env:RUSTUP_UPDATE_ROOT)) {
+            Set-ScopedEnvironmentVariable -Name "RUSTUP_UPDATE_ROOT" -Value "https://rsproxy.cn/rustup" -Snapshot $snapshot
+        }
+
+        & $rustupCmd target add @($missingTriples)
+        if ($LASTEXITCODE -ne 0) {
+            throw "rustup target add failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Restore-ScopedEnvironmentVariables -Snapshot $snapshot
+    }
+
+    foreach ($targetTriple in $missingTriples) {
+        $tripleRoot = Join-Path $toolchainRustlibRoot $targetTriple
+        $manifestPath = Join-Path $toolchainRustlibRoot ("manifest-rust-std-{0}" -f $targetTriple)
+        if ((-not (Test-Path -LiteralPath $tripleRoot)) -or (-not (Test-Path -LiteralPath $manifestPath))) {
+            throw "Target payload is still missing after rustup target add: $targetTriple"
+        }
+    }
+}
+
 function New-InstallLayout {
     param(
         [Parameter(Mandatory = $true)]
@@ -396,6 +502,8 @@ function Invoke-PrepareOfflineRelease {
             throw "Required offline release input is missing: $requiredPath"
         }
     }
+
+    Ensure-TargetRustStdPayloads -Paths $paths
 
     Write-Step "Refreshing offline release staging under $($paths.StagingRoot)"
     Remove-ManagedPath -Path $paths.StagingRoot
