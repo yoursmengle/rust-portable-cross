@@ -3,3 +3,9 @@ dist/
 continue.txt
 .vscode/
 codex-root-write-probe/
+.claude/
+.codex/
+.omx/
+.opencode/
+.pi/
+
