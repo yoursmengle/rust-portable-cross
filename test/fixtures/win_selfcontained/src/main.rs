@@ -7,6 +7,8 @@ use std::panic;
 extern "C" {
     fn rpc_probe_add(a: i32, b: i32) -> i32;
     fn rpc_probe_crt() -> i32;
+    fn rpc_probe_large_frame(seed: i32) -> i32;
+    fn rpc_probe_stdio() -> i32;
 }
 
 fn recurse_then_panic(depth: u32) {
@@ -28,6 +30,19 @@ fn main() {
     let length = unsafe { rpc_probe_crt() };
     assert_eq!(length, 8, "C runtime probe returned {length}");
     println!("c-runtime: ok");
+
+    // A C frame larger than one page. The GNU-targeted C compiler emits a stack
+    // probe call for it, which only rpc_winshim.lib can resolve in an MSVC link.
+    let checksum = unsafe { rpc_probe_large_frame(3) };
+    assert_eq!(checksum, 122885, "large-frame probe returned {checksum}");
+    println!("large-frame: ok");
+
+    // Formatted I/O from the C side. ucrtbase.dll exports no member of the
+    // printf or scanf family, so these link only via the shim - and the probe
+    // checks results, not just that it linked.
+    let stdio = unsafe { rpc_probe_stdio() };
+    assert_eq!(stdio, 0, "C stdio probe failed at step {stdio}");
+    println!("c-stdio: ok");
 
     // Unwinding across several frames, driven by ucrtbase's __CxxFrameHandler3.
     let previous = panic::take_hook();

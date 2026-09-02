@@ -61,6 +61,40 @@ function Get-ExpectedToolkitSource {
     return (Join-Path $winSysrootLib $name)
 }
 
+function Get-ArchiveDefinedSymbols {
+    param([Parameter(Mandatory = $true)][string]$ArchivePath)
+
+    # Read the archive's own linker symbol directory: the first member is named
+    # "/" and holds a big-endian symbol count, one offset per symbol, then the
+    # names. This check reads it independently of the generator on purpose - the
+    # point is to verify the shipped file, not to trust the script that wrote it.
+    $bytes = [System.IO.File]::ReadAllBytes($ArchivePath)
+    if ($bytes.Length -lt 68 -or
+        [System.Text.Encoding]::ASCII.GetString($bytes, 0, 8) -ne "!<arch>" + [char]10) {
+        throw "Not a COFF archive: $ArchivePath"
+    }
+
+    $memberSize = [int]([System.Text.Encoding]::ASCII.GetString($bytes, 8 + 48, 10).Trim())
+    $data = 8 + 60
+    $limit = $data + $memberSize
+    if ($limit -gt $bytes.Length) {
+        throw "Truncated archive symbol directory in $ArchivePath"
+    }
+
+    $count = ($bytes[$data] -shl 24) -bor ($bytes[$data + 1] -shl 16) -bor `
+        ($bytes[$data + 2] -shl 8) -bor $bytes[$data + 3]
+
+    $symbols = New-Object 'System.Collections.Generic.HashSet[string]'
+    $cursor = $data + 4 + ($count * 4)
+    for ($i = 0; $i -lt $count -and $cursor -lt $limit; $i++) {
+        $end = $cursor
+        while ($end -lt $limit -and $bytes[$end] -ne 0) { $end++ }
+        [void]$symbols.Add([System.Text.Encoding]::ASCII.GetString($bytes, $cursor, $end - $cursor))
+        $cursor = $end + 1
+    }
+    return $symbols
+}
+
 function Invoke-BuildWithScrubbedEnvironment {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectPath,
@@ -124,6 +158,47 @@ if ($missingLibraries.Count -gt 0) {
 }
 else {
     Write-Pass "all $($requiredLibraries.Count) required link inputs present in $winSysrootLib"
+}
+
+# --- Symbols the shim has to supply -------------------------------------------
+
+Write-Section "Compiler-runtime shim symbols"
+$shimLib = Join-Path $winSysrootLib "rpc_winshim.lib"
+$provenanceFile = Join-Path $winSysroot "PROVENANCE.json"
+if (-not (Test-Path -LiteralPath $shimLib -PathType Leaf)) {
+    Add-Failure "rpc_winshim.lib is missing; regenerate it with: $generatorCommand"
+}
+elseif (-not (Test-Path -LiteralPath $provenanceFile -PathType Leaf)) {
+    Add-Failure "Missing $provenanceFile, which records the symbols the shim must define.`n          Regenerate the sysroot with: $generatorCommand"
+}
+else {
+    # The generator records the set it asserted; this check re-reads the shipped
+    # archive against it rather than keeping a second list that can drift. The two
+    # stack-probe spellings are named explicitly so an emptied record cannot make
+    # this pass vacuously - the GNU-targeted C compiler calls ___chkstk_ms, and
+    # nothing else on an MSVC link line defines it.
+    $provenance = Get-Content -LiteralPath $provenanceFile -Raw | ConvertFrom-Json
+    $required = @($provenance.requiredShimSymbols)
+    $floor = @("__chkstk", "___chkstk_ms")
+    $unrecorded = @($floor | Where-Object { $required -notcontains $_ })
+
+    if ($unrecorded.Count -gt 0) {
+        Add-Failure "$provenanceFile does not record $($unrecorded -join ', ') as a required shim symbol.`n          Add it to `$script:RequiredShimSymbols in scripts\build_win_link_inputs.ps1 and regenerate."
+    }
+
+    try {
+        $defined = Get-ArchiveDefinedSymbols -ArchivePath $shimLib
+        $missingSymbols = @($required | Where-Object { -not $defined.Contains($_) })
+        if ($missingSymbols.Count -gt 0) {
+            Add-Failure "rpc_winshim.lib does not define $($missingSymbols -join ', ').`n          Regenerate it with: $generatorCommand"
+        }
+        else {
+            Write-Pass "rpc_winshim.lib defines all $($required.Count) required symbols"
+        }
+    }
+    catch {
+        Add-Failure "Could not read the symbols in ${shimLib}: $($_.Exception.Message)"
+    }
 }
 
 # --- Where the linker actually resolved its libraries -------------------------

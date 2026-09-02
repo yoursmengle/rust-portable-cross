@@ -181,7 +181,8 @@ Windows 10 / Server 2016 and later and need no Visual C++ redistributable.
 
 A crate whose C code requires Microsoft's own headers rather than the bundled mingw-w64 ones is the one
 remaining case that still needs a host MSVC installation; it fails in the C build script, not at link
-time.
+time. C code that calls the wide-character printf or scanf family is the one known link-time gap - see
+`build_win_link_inputs.ps1` below.
 
 ### `build_win_link_inputs.ps1`
 
@@ -190,8 +191,28 @@ libraries built from mingw-w64 module-definition files, plus `rpc_winshim.lib` f
 symbols no Windows DLL exports. It needs no network access and no Microsoft tooling, and it runs
 automatically as part of `prepare_offline_release.ps1`.
 
+`rpc_winshim.lib` covers two kinds of symbol that nothing on an MSVC link line defines.
+
+The first is the stack probe, under both names it is called by. MSVC codegen calls it `__chkstk`;
+the bundled C compiler targets the GNU ABI, so for any frame larger than one page it calls libgcc's
+`___chkstk_ms` instead. They are the same routine, and neither libgcc nor compiler-rt is on an MSVC
+link line, so both names are labels on one body in the shim.
+
+The second is formatted I/O. `ucrtbase.dll` exports the `__stdio_common_v*` primitives but not one
+member of the printf or scanf family - in Microsoft's own headers those are inline bodies that
+forward to the primitives, so they never become DLL exports, and mingw leaves the bodies to
+`libmingwex.a`. The shim carries them instead: `printf`, `fprintf`, `sprintf`, `snprintf`,
+`_snprintf`, `_scprintf`, `scanf`, `fscanf`, `sscanf` and each one's `v`-prefixed variant, each with
+the option flags its Microsoft header inline passes. The wide-character families are absent from
+`ucrtbase.dll` too and are deliberately not shimmed; add them to the symbol list if a dependency
+ever needs them.
+
+The shim also provides `mainCRTStartup`, `_fltused`, `atexit` and the TLS directory. The full set
+the generator asserts is declared in `$script:RequiredShimSymbols` and recorded in the sysroot's
+`PROVENANCE.json`; `check_tool_x64_win.ps1` verifies the shipped archive against that record.
+
 ```powershell
-.\scriptsuild_win_link_inputs.ps1 -Force
+.\scripts\build_win_link_inputs.ps1 -Force
 ```
 
 ### `check_tool_x64_win.ps1`
