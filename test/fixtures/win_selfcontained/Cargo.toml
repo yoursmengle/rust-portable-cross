@@ -1,0 +1,14 @@
+[package]
+name = "win_selfcontained"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Deliberately dependency-free: this fixture has to build inside an offline
+# installation, so it exercises the C toolchain through $CC directly rather than
+# through the cc crate.
+
+[dependencies]
+
+[profile.release]
+panic = "unwind"

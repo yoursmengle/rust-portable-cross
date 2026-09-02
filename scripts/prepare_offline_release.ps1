@@ -443,6 +443,51 @@ function Ensure-TargetRustStdPayloads {
     }
 }
 
+function Ensure-WindowsLinkInputs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Paths
+    )
+
+    # Regenerated on every release so the shipped sysroot always matches the
+    # bundled Zig it was derived from.
+    $generator = Join-Path $Paths.ToolkitRoot "scripts\build_win_link_inputs.ps1"
+    if (-not (Test-Path -LiteralPath $generator -PathType Leaf)) {
+        throw "Required offline release input is missing: $generator"
+    }
+
+    Write-Step "Generating Windows link inputs for $script:HostTriple"
+    $global:LASTEXITCODE = 0
+    & $generator -ToolkitRoot $Paths.ToolkitRoot -Force
+    if ($LASTEXITCODE -ne 0) {
+        throw "Generating the Windows link inputs failed with exit code $LASTEXITCODE. The offline package would depend on a host Visual Studio installation."
+    }
+}
+
+function Assert-WindowsSelfContainment {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Paths
+    )
+
+    # A package that silently rides on host tooling is the failure this check
+    # exists to prevent, so it gates the release rather than merely reporting.
+    $check = Join-Path $Paths.ToolkitRoot "check_tool_x64_win.ps1"
+    if (-not (Test-Path -LiteralPath $check -PathType Leaf)) {
+        throw "Required offline release input is missing: $check"
+    }
+
+    Write-Step "Verifying $script:HostTriple builds are self-contained"
+    $global:LASTEXITCODE = 0
+    $output = & $check *>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host "    $_" }
+
+    if ($exitCode -ne 0) {
+        throw "The self-containment check failed with exit code $exitCode. Aborting before writing the release package - see the check output above."
+    }
+}
+
 function New-InstallLayout {
     param(
         [Parameter(Mandatory = $true)]
@@ -488,6 +533,8 @@ function Invoke-PrepareOfflineRelease {
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_isolation.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\build_win_link_inputs.ps1"),
+        (Join-Path $paths.ToolkitRoot "test\fixtures\win_selfcontained\Cargo.toml"),
         (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_x64_win.ps1"),
@@ -504,6 +551,8 @@ function Invoke-PrepareOfflineRelease {
     }
 
     Ensure-TargetRustStdPayloads -Paths $paths
+    Ensure-WindowsLinkInputs -Paths $paths
+    Assert-WindowsSelfContainment -Paths $paths
 
     Write-Step "Refreshing offline release staging under $($paths.StagingRoot)"
     Remove-ManagedPath -Path $paths.StagingRoot
@@ -529,6 +578,17 @@ function Invoke-PrepareOfflineRelease {
         "scripts/rust_build_isolation.ps1",
         "scripts/finalize_offline_install.ps1",
         "scripts/rust_build_x64_win_native.ps1",
+        "scripts/build_win_link_inputs.ps1",
+        # The Windows link inputs and the fixture the self-containment check
+        # builds. Both ship in core so every installation can build for
+        # x86_64-pc-windows-msvc, and verify that it did so without host tooling.
+        "tools/sysroot",
+        "test/fixtures/win_selfcontained/.gitignore",
+        "test/fixtures/win_selfcontained/Cargo.lock",
+        "test/fixtures/win_selfcontained/Cargo.toml",
+        "test/fixtures/win_selfcontained/build.rs",
+        "test/fixtures/win_selfcontained/csrc",
+        "test/fixtures/win_selfcontained/src",
         "sample/.cargo",
         "sample/.gitignore",
         "sample/Cargo.lock",

@@ -32,7 +32,22 @@ $script:RustBuildIsolatedEnvironmentNames = @(
     'RANLIB_x86_64_pc_windows_msvc',
     'CC_x86_64-pc-windows-msvc',
     'AR_x86_64-pc-windows-msvc',
-    'RANLIB_x86_64-pc-windows-msvc'
+    'RANLIB_x86_64-pc-windows-msvc',
+    # Host MSVC / Windows SDK discovery. The toolkit ships its own Windows link
+    # inputs under tools\sysroot, so an ambient Visual Studio environment must not
+    # reach the build. Save/Clear/Restore all iterate this list, so adding a name
+    # here covers the success and failure paths alike.
+    'LIB',
+    'INCLUDE',
+    'LIBPATH',
+    'VCINSTALLDIR',
+    'VSINSTALLDIR',
+    'VCToolsInstallDir',
+    'WindowsSdkDir',
+    'WindowsSdkVerBinPath',
+    'WindowsSDKLibVersion',
+    'UniversalCRTSdkDir',
+    'UCRTVersion'
 )
 
 function Save-RustBuildEnvironment {

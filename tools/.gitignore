@@ -5,3 +5,4 @@ rustup-home/
 zig/
 zig-global-cache/
 zig-local-cache/
+sysroot/

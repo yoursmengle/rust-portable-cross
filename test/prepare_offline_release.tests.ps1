@@ -86,7 +86,35 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_thumbv7em.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_armv7.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_aarch64.ps1")
-    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_x64_win.ps1")
+
+    # The release pipeline runs these two for real, so the fixture needs scripts
+    # that behave rather than placeholder text. The generator stands in for
+    # build_win_link_inputs.ps1 by writing the sysroot it would produce.
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\build_win_link_inputs.ps1") -Content @'
+[CmdletBinding()]
+param([string]$ToolkitRoot, [string]$Arch = "x86_64", [switch]$Force)
+$sysroot = Join-Path $ToolkitRoot "tools\sysroot\x86_64-pc-windows-msvc"
+$libRoot = Join-Path $sysroot "lib"
+New-Item -ItemType Directory -Path $libRoot -Force | Out-Null
+foreach ($name in @("kernel32", "ntdll", "userenv", "ws2_32", "dbghelp", "msvcrt", "rpc_winshim")) {
+    Set-Content -LiteralPath (Join-Path $libRoot "$name.lib") -Value "stub" -Encoding ASCII
+}
+Set-Content -LiteralPath (Join-Path $sysroot "PROVENANCE.json") -Value "{}" -Encoding ASCII
+exit 0
+'@
+
+    New-TestFile -Path (Join-Path $toolkitRoot "check_tool_x64_win.ps1") -Content @'
+[CmdletBinding()]
+param([switch]$SkipNegativeTest)
+exit 0
+'@
+
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\.gitignore") -Content "target/"
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\Cargo.lock")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\build.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\csrc\probe.c")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_thumbv7em.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup\rustup.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\cargo.exe")
@@ -128,6 +156,15 @@ try {
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_isolation.ps1")) -Message "core payload should contain rust_build_isolation.ps1"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\build_win_link_inputs.ps1")) -Message "core payload should contain build_win_link_inputs.ps1"
+    foreach ($linkInput in @("kernel32.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "dbghelp.lib", "msvcrt.lib", "rpc_winshim.lib")) {
+        Assert-True `
+            -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\sysroot\x86_64-pc-windows-msvc\lib\$linkInput")) `
+            -Message "core payload should contain the bundled Windows link input $linkInput"
+    }
+    Assert-True `
+        -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "test\fixtures\win_selfcontained\src\main.rs")) `
+        -Message "core payload should contain the self-containment fixture"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\finalize_offline_install.ps1")) -Message "core payload should contain finalize_offline_install.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_x64_win_native.ps1")) -Message "core payload should contain the native x64 helper script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "docs\README-offline.md")) -Message "core payload should contain the customer README"

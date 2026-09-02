@@ -127,13 +127,45 @@ function Assert-X64WinEnvBeforeCargoBuild {
     Assert-True `
         -Condition ($body -match "cargo build --release --target x86_64-pc-windows-msvc") `
         -Message "$ScriptPath should build the approved x86_64-pc-windows-msvc target."
+    # The host C wrapper targets windows-gnu when the bundled link inputs are in
+    # use: zig cc -target x86_64-windows-msvc needs Microsoft's headers, which the
+    # toolkit cannot ship, so a crate with a C build script would fail on a machine
+    # without Visual Studio even once the link inputs are present.
     Assert-True `
-        -Condition ($body -match 'cc -target x86_64-windows-msvc @filtered') `
-        -Message "$ScriptPath should force the host C wrapper to use the MSVC Zig ABI."
+        -Condition ($body -match [regex]::Escape('$zigCcTarget = "x86_64-windows-gnu"')) `
+        -Message "$ScriptPath should target windows-gnu for the host C wrapper."
+    Assert-True `
+        -Condition ($body -match 'cc -target __ZIG_TARGET__ @filtered') `
+        -Message "$ScriptPath should pass the selected Zig target into the host C wrapper."
     $ambiguousWindowsZigTarget = "x86_64-windows"
     Assert-True `
         -Condition ($body -notmatch [regex]::Escape("cc -target $ambiguousWindowsZigTarget @filtered")) `
         -Message "$ScriptPath should not use Zig's ambiguous Windows C target."
+
+    # The bundled Windows link inputs must win over any host Visual Studio, and
+    # +crt-static must not be requested against them: it makes rustc emit
+    # /defaultlib:libcmt, MSVC's static CRT, which is not redistributable.
+    Assert-True `
+        -Condition ($beforeCargoBuild -match [regex]::Escape('-C link-arg=/LIBPATH:$winSysrootLib')) `
+        -Message "$ScriptPath should put the bundled Windows link inputs ahead of any host library path."
+    Assert-True `
+        -Condition ($beforeCargoBuild -match [regex]::Escape('-C link-arg=rpc_winshim.lib')) `
+        -Message "$ScriptPath should link the shim archive that supplies mainCRTStartup and __chkstk."
+    # +crt-static makes rustc emit /defaultlib:libcmt, MSVC's static CRT, which is
+    # not redistributable and has no DLL to import from.
+    Assert-True `
+        -Condition ($body -notmatch [regex]::Escape('-Flag "-C target-feature=+crt-static"')) `
+        -Message "$ScriptPath should not request +crt-static against the bundled link inputs."
+    # No silent fallback to host Visual Studio when the link inputs are absent.
+    Assert-True `
+        -Condition ($body -notmatch [regex]::Escape('$useBundledLinkInputs')) `
+        -Message "$ScriptPath should no longer carry the migration fallback for missing link inputs."
+    Assert-True `
+        -Condition ($body -match [regex]::Escape('if (-not $winLinkInputs.Complete) {')) `
+        -Message "$ScriptPath should fail when the bundled Windows link inputs are missing."
+    Assert-True `
+        -Condition ($body -match 'throw @"[\s\S]*?build_win_link_inputs\.ps1') `
+        -Message "$ScriptPath should name the regeneration command when the link inputs are missing."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot

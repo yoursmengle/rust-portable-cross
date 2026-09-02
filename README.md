@@ -125,6 +125,7 @@ rust-portable-cross/
 │   ├── rust_build_aarch64.ps1  # Cross-build for aarch64-unknown-linux-musl
 │   ├── rust_build_armv7.ps1    # Cross-build for armv7-unknown-linux-musleabihf
 │   ├── rust_build_thumbv7em.ps1 # Bare-metal build for thumbv7em-none-eabihf
+│   ├── build_win_link_inputs.ps1 # Generates the Windows link inputs from bundled Zig
 │   └── rust_setup.tests.ps1    # Unit tests for setup script logic
 └── tools/                     # All toolchain binaries (git-ignored binaries)
     ├── cargo-home/            # CARGO_HOME
@@ -134,6 +135,7 @@ rust-portable-cross/
     ├── zig-global-cache/      # ZIG_GLOBAL_CACHE_DIR
     ├── zig-local-cache/       # ZIG_LOCAL_CACHE_DIR
     ├── wrappers/              # zig-cc wrapper .cmd files
+    ├── sysroot/               # Generated Windows link inputs (import libs + shim)
     └── downloads/             # Downloaded installer cache
 ```
 
@@ -172,6 +174,31 @@ If you want to build `x86_64-pc-windows-msvc` without installing system Rust, us
 ```
 
 This helper wires `rust-lld` and a repository-local Zig C compiler wrapper for crates that use `cc-rs`.
+It needs no Visual Studio, MSVC linker or Windows SDK: the Windows import libraries it links against
+ship in `tools/sysroot/x86_64-pc-windows-msvc/lib/` and are passed ahead of any host library path, so
+the build behaves the same with or without Visual Studio installed. The produced executables run on
+Windows 10 / Server 2016 and later and need no Visual C++ redistributable.
+
+A crate whose C code requires Microsoft's own headers rather than the bundled mingw-w64 ones is the one
+remaining case that still needs a host MSVC installation; it fails in the C build script, not at link
+time.
+
+### `build_win_link_inputs.ps1`
+
+Regenerates `tools/sysroot/x86_64-pc-windows-msvc/` from the bundled Zig installation - import
+libraries built from mingw-w64 module-definition files, plus `rpc_winshim.lib` for the handful of
+symbols no Windows DLL exports. It needs no network access and no Microsoft tooling, and it runs
+automatically as part of `prepare_offline_release.ps1`.
+
+```powershell
+.\scriptsuild_win_link_inputs.ps1 -Force
+```
+
+### `check_tool_x64_win.ps1`
+
+Verifies that an `x86_64-pc-windows-msvc` build is genuinely self-contained: it builds with the host
+Visual Studio environment scrubbed, runs the results, and fails if any library the linker resolved came
+from outside the toolkit root. `prepare_offline_release.ps1` runs it and refuses to package on failure.
 
 ---
 

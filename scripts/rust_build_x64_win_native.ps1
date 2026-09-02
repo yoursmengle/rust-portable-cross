@@ -67,11 +67,59 @@ $cargoExe = Join-Path $cargoHome "bin\cargo.exe"
 $rustcExe = Join-Path $cargoHome "bin\rustc.exe"
 $rustupExe = Join-Path $cargoHome "bin\rustup.exe"
 $zigExe = Join-Path $zigRoot "zig.exe"
+$winSysrootLib = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc\lib"
 
 foreach ($requiredPath in @($cargoExe, $rustcExe, $rustupExe, $zigExe, $rustMsvcBin)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Missing required toolkit path: $requiredPath`nRun .\scripts\rust_setup.ps1 first."
     }
+}
+
+# The bundled Windows link inputs. Without these the link falls back to whatever
+# Visual Studio happens to be on the machine, which is exactly the host
+# dependency this toolkit exists to avoid.
+$script:RequiredWinLinkInputs = @(
+    "kernel32.lib",
+    "ntdll.lib",
+    "userenv.lib",
+    "ws2_32.lib",
+    "dbghelp.lib",
+    "msvcrt.lib",
+    "rpc_winshim.lib"
+)
+
+function Test-WindowsLinkInputs {
+    param([Parameter(Mandatory = $true)][string]$LibRoot)
+
+    if (-not (Test-Path -LiteralPath $LibRoot -PathType Container)) {
+        return @{ Complete = $false; Missing = @($script:RequiredWinLinkInputs) }
+    }
+
+    $missing = @($script:RequiredWinLinkInputs | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $LibRoot $_) -PathType Leaf)
+    })
+
+    return @{ Complete = ($missing.Count -eq 0); Missing = $missing }
+}
+
+$winLinkInputs = Test-WindowsLinkInputs -LibRoot $winSysrootLib
+
+if (-not $winLinkInputs.Complete) {
+    # No fallback to host Visual Studio: silently riding on whatever libraries the
+    # machine happens to have is the failure this toolkit exists to prevent, and it
+    # would make a developer machine and a bare machine link differently.
+    throw @"
+The bundled Windows link inputs are missing or incomplete, so this build cannot proceed.
+
+  Expected under: $winSysrootLib
+  Missing:        $($winLinkInputs.Missing -join ', ')
+
+Regenerate them with:
+  .\scripts\build_win_link_inputs.ps1
+
+This is a missing set of link inputs, not a missing linker: the bundled rust-lld does the
+linking and needs no separate installation.
+"@
 }
 
 $resolvedProjectPath = Resolve-ProjectPath -Path $ProjectPath
@@ -122,10 +170,18 @@ foreach ($a in $args) {
     $filtered.Add($arg)
 }
 
-& '__ZIG_EXE__' cc -target x86_64-windows-msvc @filtered
+& '__ZIG_EXE__' cc -target __ZIG_TARGET__ @filtered
 exit $LASTEXITCODE
 '@
-$x64WrapperPs1Body = $x64WrapperPs1BodyTemplate.Replace('__ZIG_EXE__', $zigExeEscaped)
+# `zig cc -target x86_64-windows-msvc` needs MSVC's headers, which we cannot
+# ship - so a crate with a C build script would still fail on a bare machine even
+# with the link inputs in place. Targeting windows-gnu uses the mingw-w64 headers
+# and libc that Zig bundles in full. The objects are C-ABI compatible with the
+# MSVC-ABI Rust objects, and both sides resolve the CRT to ucrtbase.dll.
+$zigCcTarget = "x86_64-windows-gnu"
+$x64WrapperPs1Body = $x64WrapperPs1BodyTemplate.
+    Replace('__ZIG_EXE__', $zigExeEscaped).
+    Replace('__ZIG_TARGET__', $zigCcTarget)
 Set-Content -LiteralPath $x64WrapperPs1Path -Value $x64WrapperPs1Body -Encoding ASCII
 
 $x64WrapperCmdBody = @(
@@ -152,9 +208,25 @@ $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
     -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
     -Flag "-C linker-flavor=lld-link"
+# Note: +crt-static is deliberately not set. It makes rustc emit /defaultlib:libcmt,
+# MSVC's static CRT, which is not redistributable and has no DLL to import from. The
+# bundled inputs use the dynamic UCRT instead - ucrtbase.dll is an operating system
+# component on Windows 10 and later, so the produced executable still needs nothing
+# installed alongside it.
+
+# rustc injects the host Visual Studio / Windows SDK LIB into the linker process from
+# its own registry probe and offers no switch to stop it. lld-link searches /LIBPATH:
+# before LIB, so naming the bundled sysroot here makes it win on any machine, with or
+# without Visual Studio installed.
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
     -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
-    -Flag "-C target-feature=+crt-static"
+    -Flag "-C link-arg=/LIBPATH:$winSysrootLib"
+
+# Supplies mainCRTStartup, atexit, _fltused, the TLS directory, __chkstk and the
+# type_info vtable - the symbols no Windows DLL exports.
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustFlagIfMissing `
+    -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
+    -Flag "-C link-arg=rpc_winshim.lib"
 $env:CC = "x64-windows-msvc-zig-cc.cmd"
 $env:HOST_CC = "x64-windows-msvc-zig-cc.cmd"
 $env:CC_x86_64_pc_windows_msvc = "x64-windows-msvc-zig-cc.cmd"
