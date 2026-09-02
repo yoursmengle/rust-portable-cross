@@ -157,6 +157,7 @@ fn main() {
         $env:PATH = "$(Join-Path $toolsRoot 'cargo-home\bin');$rustMsvcBin;$env:PATH"
 
         $probeExe = Join-Path $probeRoot "probe.exe"
+        $provenanceSentinel = "__rust_portable_cross_provenance_probe__.lib"
         $rustcArgs = @(
             "--target", "x86_64-pc-windows-msvc",
             "--edition", "2021",
@@ -165,24 +166,28 @@ fn main() {
             "-C", "link-arg=/LIBPATH:$winSysrootLib",
             "-C", "link-arg=rpc_winshim.lib",
             "-C", "link-arg=/verbose",
+            "-C", "link-arg=$provenanceSentinel",
             $probeSource,
             "-o", $probeExe
         )
-        # rustc and rust-lld emit UTF-8. On a console using a legacy code page
-        # (936, for instance) a high lead byte swallows the following carriage
-        # return, which merges the /verbose records into one blob and makes the
-        # parse below meaningless. Decode as UTF-8 for the duration of the probe.
+        # rustc only returns rust-lld's /verbose output if linking fails. The
+        # sentinel is deliberately missing, so it exposes the paths lld resolved.
+        # Decode as UTF-8 so a legacy console code page cannot merge its records.
         $previousOutputEncoding = [Console]::OutputEncoding
         try {
             [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
             $verboseOutput = & (Join-Path $toolsRoot "cargo-home\bin\rustc.exe") @rustcArgs 2>&1 | Out-String
+            $probeExitCode = $LASTEXITCODE
         }
         finally {
             [Console]::OutputEncoding = $previousOutputEncoding
         }
 
-        if (-not (Test-Path -LiteralPath $probeExe -PathType Leaf)) {
-            Add-Failure "The link probe did not produce an executable.`n$verboseOutput"
+        if ($probeExitCode -eq 0) {
+            Add-Failure "The provenance probe unexpectedly linked successfully; it must fail on $provenanceSentinel to expose the linker's /verbose output."
+        }
+        elseif ($verboseOutput -notlike "*could not open '$provenanceSentinel'*") {
+            Add-Failure "The provenance probe failed before the expected $provenanceSentinel error, so the linker inputs could not be verified.`n$verboseOutput"
         }
         else {
             # Only .lib inputs matter here: object files and rlibs come from the
@@ -191,9 +196,9 @@ fn main() {
             # path stops at the first ".lib", may not contain a control character,
             # and may not swallow the start of the next "rust-lld:" record.
             $readingPattern = '(?i)Reading[ \t]+([A-Za-z]:\\(?:(?!rust-lld)[^\x00-\x1F<>|*?"]){0,300}?\.lib)(?![A-Za-z0-9])'
-            $resolved = [regex]::Matches($verboseOutput, $readingPattern) |
+            $resolved = @([regex]::Matches($verboseOutput, $readingPattern) |
                 ForEach-Object { $_.Groups[1].Value.Trim() } |
-                Sort-Object -Unique
+                Sort-Object -Unique)
 
             if ($resolved.Count -eq 0) {
                 Add-Failure "Could not determine which libraries the linker read; /verbose produced no resolvable paths."
