@@ -45,6 +45,10 @@ If a target was not selected during installation, its build script or wrapper fi
 
 - This is a bare-metal (`no_std`) ARM Cortex-M4F/M7 target. It links with the
   bundled `rust-lld`, so it needs no Zig wrapper or external C cross-toolchain.
+- Cargo still compiles host build scripts as `x86_64-pc-windows-msvc` binaries.
+  Those host links use the bundled Windows link inputs under
+  `tools\sysroot\x86_64-pc-windows-msvc\lib`, so they need no Visual Studio or
+  Windows SDK installation.
 - Building a firmware binary requires a linker script. The bundled
   `sample_embedded` crate is a complete example for the HEM6801E board
   (GD32F427ZE) that ships its own `link.x`, so you can use it as a starting

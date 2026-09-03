@@ -171,6 +171,11 @@ Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCH
 
 Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`. `rust_build_thumbv7em.ps1` builds the bare-metal `thumbv7em-none-eabihf` target with the bundled `rust-lld`; it sets up no Zig/C cross-toolchain.
 
+Cargo still compiles host build scripts and proc-macros as `x86_64-pc-windows-msvc`
+binaries even when `--target` is a cross triple. Those host links use the bundled
+Windows link inputs under `tools/sysroot/x86_64-pc-windows-msvc/lib/` and need no
+Visual Studio or Windows SDK installation.
+
 If you want to build `x86_64-pc-windows-msvc` without installing system Rust, use:
 
 ```powershell

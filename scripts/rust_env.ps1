@@ -32,16 +32,19 @@ if (-not (Test-Path -LiteralPath (Join-Path $rustMsvcBin "rust-lld.exe") -PathTy
     throw "Missing required toolkit file: $(Join-Path $rustMsvcBin 'rust-lld.exe')`nRun .\scripts\rust_setup.ps1 first."
 }
 
-# The linker above is only half of what an x86_64-pc-windows-msvc link needs; the
-# other half is the import libraries it consumes. Warn rather than throw, because
-# the cross targets in this environment do not need them.
+# The linker above is only half of what a host x86_64-pc-windows-msvc link needs;
+# the other half is the import libraries it consumes. Warn rather than throw:
+# rust_env is used for rustc -V and listing targets, not only for cargo builds.
+# Every toolkit cargo build that links a host artifact needs these inputs,
+# including thumbv7em / armv7 / aarch64 (cargo still compiles build.rs and
+# proc-macros for the host).
 $winSysrootLib = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc\lib"
 $missingWinLinkInputs = @(
     @("kernel32.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "dbghelp.lib", "msvcrt.lib", "rpc_winshim.lib") |
         Where-Object { -not (Test-Path -LiteralPath (Join-Path $winSysrootLib $_) -PathType Leaf) }
 )
 if ($missingWinLinkInputs.Count -gt 0) {
-    Write-Warning "Missing Windows link inputs under $winSysrootLib ($($missingWinLinkInputs -join ', ')).`nx86_64-pc-windows-msvc builds will fail until these are regenerated with .\scripts\build_win_link_inputs.ps1"
+    Write-Warning "Missing Windows link inputs under $winSysrootLib ($($missingWinLinkInputs -join ', ')).`nEvery toolkit cargo build that links a host artifact (x86_64-pc-windows-msvc, plus thumbv7em / armv7 / aarch64 host build scripts) will fail until these are regenerated with .\scripts\build_win_link_inputs.ps1"
 }
 
 New-Item -ItemType Directory -Path $zigLocalCache -Force | Out-Null

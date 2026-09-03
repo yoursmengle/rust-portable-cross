@@ -76,6 +76,69 @@ function Add-RustBuildFlagIfMissing {
     return "$Existing $Flag"
 }
 
+$script:RequiredWindowsLinkInputs = @(
+    "kernel32.lib",
+    "ntdll.lib",
+    "userenv.lib",
+    "ws2_32.lib",
+    "dbghelp.lib",
+    "msvcrt.lib",
+    "rpc_winshim.lib"
+)
+
+function Test-WindowsLinkInputs {
+    param([Parameter(Mandatory = $true)][string]$LibRoot)
+
+    if (-not (Test-Path -LiteralPath $LibRoot -PathType Container)) {
+        return @{ Complete = $false; Missing = @($script:RequiredWindowsLinkInputs) }
+    }
+
+    $missing = @($script:RequiredWindowsLinkInputs | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $LibRoot $_) -PathType Leaf)
+    })
+
+    return @{ Complete = ($missing.Count -eq 0); Missing = $missing }
+}
+
+function Initialize-WindowsHostLinkInputs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolkitRoot
+    )
+
+    $winSysrootLib = Join-Path $ToolkitRoot "tools\sysroot\x86_64-pc-windows-msvc\lib"
+    $winLinkInputs = Test-WindowsLinkInputs -LibRoot $winSysrootLib
+
+    if (-not $winLinkInputs.Complete) {
+        throw @"
+The bundled Windows link inputs are missing or incomplete, so this build cannot proceed.
+
+  Expected under: $winSysrootLib
+  Missing:        $($winLinkInputs.Missing -join ', ')
+
+Regenerate them with:
+  .\scripts\build_win_link_inputs.ps1
+
+This is a missing set of link inputs, not a missing linker: the bundled rust-lld does the
+linking and needs no separate installation.
+"@
+    }
+
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
+        -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
+        -Flag "-C linker-flavor=lld-link"
+    # rustc injects host SDK LIB into the linker child from its registry probe and
+    # offers no switch to stop it. lld-link searches /LIBPATH: before LIB, so naming
+    # the bundled sysroot here makes it win on any machine.
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
+        -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
+        -Flag "-C link-arg=/LIBPATH:$winSysrootLib"
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
+        -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
+        -Flag "-C link-arg=rpc_winshim.lib"
+}
+
 function Get-NormalizedCargoSectionName {
     param([AllowEmptyString()][string]$SectionName)
 

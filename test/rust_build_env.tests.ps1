@@ -65,11 +65,11 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match 'Repair-CargoHostTargetConfig\s+-ToolkitRoot\s+\$toolkitRoot\s+-ProjectRoot\s+\(Get-Location\)\.Path') `
         -Message "$ScriptPath should sanitize Cargo config files before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
-        -Message "$ScriptPath should force Windows MSVC host build scripts to use rust-lld before cargo build."
+        -Condition ($beforeCargoBuild -match 'Initialize-WindowsHostLinkInputs\s+-ToolkitRoot\s+\$toolkitRoot') `
+        -Message "$ScriptPath should initialize bundled Windows host link inputs before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match "linker-flavor=lld-link") `
-        -Message "$ScriptPath should force Windows MSVC host build scripts to use the lld-link flavor before cargo build."
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("Initialize-WindowsHostLinkInputs")) `
+        -Message "$ScriptPath should clear stale target environment before initializing Windows host link inputs."
 }
 
 function Assert-X64WinEnvBeforeCargoBuild {
@@ -107,23 +107,20 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -match 'Repair-CargoHostTargetConfig\s+-ToolkitRoot\s+\$toolkitRoot\s+-ProjectRoot\s+\$resolvedProjectPath') `
         -Message "$ScriptPath should sanitize Cargo config files before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
-        -Message "$ScriptPath should set the x64 Windows MSVC linker before cargo build."
-    Assert-True `
         -Condition ($beforeCargoBuild -match "rust_build_isolation\.ps1") `
         -Message "$ScriptPath should load the target environment isolation helper before cargo build."
     Assert-True `
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
         -Message "$ScriptPath should clear stale target environment before cargo build."
     Assert-True `
-        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER')) `
-        -Message "$ScriptPath should clear stale target environment before setting the x64 Windows MSVC linker."
+        -Condition ($beforeCargoBuild -match 'Initialize-WindowsHostLinkInputs\s+-ToolkitRoot\s+\$toolkitRoot') `
+        -Message "$ScriptPath should initialize bundled Windows host link inputs before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("Initialize-WindowsHostLinkInputs")) `
+        -Message "$ScriptPath should clear stale target environment before initializing Windows host link inputs."
     Assert-True `
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
-    Assert-True `
-        -Condition ($beforeCargoBuild -match "linker-flavor=lld-link") `
-        -Message "$ScriptPath should force the x64 Windows MSVC target to use the lld-link flavor before cargo build."
     Assert-True `
         -Condition ($body -match "cargo build --release --target x86_64-pc-windows-msvc") `
         -Message "$ScriptPath should build the approved x86_64-pc-windows-msvc target."
@@ -142,30 +139,15 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($body -notmatch [regex]::Escape("cc -target $ambiguousWindowsZigTarget @filtered")) `
         -Message "$ScriptPath should not use Zig's ambiguous Windows C target."
 
-    # The bundled Windows link inputs must win over any host Visual Studio, and
-    # +crt-static must not be requested against them: it makes rustc emit
-    # /defaultlib:libcmt, MSVC's static CRT, which is not redistributable.
-    Assert-True `
-        -Condition ($beforeCargoBuild -match [regex]::Escape('-C link-arg=/LIBPATH:$winSysrootLib')) `
-        -Message "$ScriptPath should put the bundled Windows link inputs ahead of any host library path."
-    Assert-True `
-        -Condition ($beforeCargoBuild -match [regex]::Escape('-C link-arg=rpc_winshim.lib')) `
-        -Message "$ScriptPath should link the shim archive that supplies mainCRTStartup and __chkstk."
     # +crt-static makes rustc emit /defaultlib:libcmt, MSVC's static CRT, which is
-    # not redistributable and has no DLL to import from.
+    # not redistributable and has no DLL to import from. Host /LIBPATH: and the
+    # missing-sysroot throw live in the isolation helper, not this script.
     Assert-True `
         -Condition ($body -notmatch [regex]::Escape('-Flag "-C target-feature=+crt-static"')) `
         -Message "$ScriptPath should not request +crt-static against the bundled link inputs."
-    # No silent fallback to host Visual Studio when the link inputs are absent.
     Assert-True `
         -Condition ($body -notmatch [regex]::Escape('$useBundledLinkInputs')) `
         -Message "$ScriptPath should no longer carry the migration fallback for missing link inputs."
-    Assert-True `
-        -Condition ($body -match [regex]::Escape('if (-not $winLinkInputs.Complete) {')) `
-        -Message "$ScriptPath should fail when the bundled Windows link inputs are missing."
-    Assert-True `
-        -Condition ($body -match 'throw @"[\s\S]*?build_win_link_inputs\.ps1') `
-        -Message "$ScriptPath should name the regeneration command when the link inputs are missing."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -195,6 +177,21 @@ foreach ($envName in @(
         -Message "Build isolation helper should isolate $envName."
 }
 
+Assert-True `
+    -Condition ($isolationHelperBody -match 'function Initialize-WindowsHostLinkInputs') `
+    -Message "Build isolation helper should initialize bundled Windows host link inputs."
+Assert-True `
+    -Condition ($isolationHelperBody -match [regex]::Escape('-C link-arg=/LIBPATH:$winSysrootLib')) `
+    -Message "Build isolation helper should put the bundled Windows link inputs ahead of any host library path."
+Assert-True `
+    -Condition ($isolationHelperBody -match [regex]::Escape('-C link-arg=rpc_winshim.lib')) `
+    -Message "Build isolation helper should link the shim archive that supplies mainCRTStartup and __chkstk."
+Assert-True `
+    -Condition ($isolationHelperBody -match 'build_win_link_inputs\.ps1') `
+    -Message "Build isolation helper should name the regeneration command when the link inputs are missing."
+Assert-True `
+    -Condition ($isolationHelperBody -notmatch [regex]::Escape('-Flag "-C target-feature=+crt-static"')) `
+    -Message "Build isolation helper should not request +crt-static against the bundled link inputs."
 Assert-True `
     -Condition ($isolationHelperBody -match 'function Repair-CargoHostTargetConfig') `
     -Message "Build isolation helper should provide Cargo host config repair."
@@ -339,8 +336,11 @@ function Assert-Thumbv7emEnvBeforeCargoBuild {
         -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
-        -Condition ($beforeCargoBuild -match ([regex]::Escape('$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"'))) `
-        -Message "$ScriptPath should force Windows MSVC host build scripts to use rust-lld before cargo build."
+        -Condition ($beforeCargoBuild -match 'Initialize-WindowsHostLinkInputs\s+-ToolkitRoot\s+\$toolkitRoot') `
+        -Message "$ScriptPath should initialize bundled Windows host link inputs before cargo build."
+    Assert-True `
+        -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("Initialize-WindowsHostLinkInputs")) `
+        -Message "$ScriptPath should clear stale target environment before initializing Windows host link inputs."
     Assert-True `
         -Condition ($body -match "cargo build --release --target thumbv7em-none-eabihf") `
         -Message "$ScriptPath should build the bare-metal thumbv7em-none-eabihf target."

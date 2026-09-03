@@ -59,9 +59,7 @@ Clear-RustBuildEnvironment
 # Zig wrapper, and no CC/AR/RANLIB overrides. Only the Windows MSVC host build
 # scripts and proc-macros need a linker, so we still force rust-lld there.
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
-$hostRustflags = "-C linker-flavor=lld-link"
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $hostRustflags
+Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
 
 Sync-CargoConfig -Source $configSource -Destination $configTarget
 

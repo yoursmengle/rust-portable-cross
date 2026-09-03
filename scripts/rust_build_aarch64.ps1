@@ -78,9 +78,7 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 }
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "rust-lld"
-$hostRustflags = "-C linker-flavor=lld-link"
-$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $hostRustflags
+Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
 
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "aarch64-linux-musl-gcc.cmd"
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS = "-C link-self-contained=no"
