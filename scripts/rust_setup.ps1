@@ -558,6 +558,24 @@ function Invoke-RustToolkitSetup {
 
     Write-Step "Generating Zig cross-compiler wrappers"
 
+    # Every `.cmd` shim runs its `.ps1` under PowerShell 7 (`pwsh`) when one is
+    # available and falls back to Windows PowerShell otherwise, so all wrappers
+    # behave identically regardless of which shell invoked the build.
+    function New-WrapperCmdBody {
+        param([Parameter(Mandatory = $true)][string]$BaseName)
+
+        return @(
+            "@echo off",
+            "setlocal",
+            "set `"_PS=`"",
+            "for %%I in (pwsh.exe) do set `"_PS=%%~`$PATH:I`"",
+            "if not defined _PS if exist `"%ProgramFiles%\PowerShell\7\pwsh.exe`" set `"_PS=%ProgramFiles%\PowerShell\7\pwsh.exe`"",
+            "if not defined _PS set `"_PS=powershell`"",
+            "`"%_PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$BaseName.ps1`" %*"
+        ) -join "`r`n"
+    }
+
+
     # Linux cross-compilation wrappers: a `.cmd` shim delegates to a `.ps1`
     # helper that strips any caller-supplied `--target=`/`-target` flags
     # (cc-rs injects the 4-component Rust triple, e.g.
@@ -576,7 +594,62 @@ function Invoke-RustToolkitSetup {
             "# cc-rs (and some build.rs scripts) inject ``--target=<rust-triple>`` which zig's",
             "# strict target parser rejects. Drop any caller-supplied -target/--target= flags",
             "# and force the canonical Zig 3-tuple ourselves.",
+            "#",
+            "# rustc also injects linker flags from the target spec that zig refuses to forward:",
+            "# zig 0.13 validates ``-Wl,`` arguments against an allowlist and aborts with",
+            "# ``error: unsupported linker arg`` instead of handing them to LLD. The AArch64",
+            "# Linux specs prepend ``-Wl,--fix-cortex-a53-843419`` - a link-time workaround for",
+            "# an erratum in Cortex-A53 r0p0-r0p4 - which fails every aarch64 link. Strip that",
+            "# family of flags; binaries linked here carry the same erratum exposure as any",
+            "# other binary zig links for aarch64.",
+            "#",
+            "# A real link never arrives as plain argv: rustc spills the whole command line",
+            "# into an ``@response-file``, so the same filtering has to run over the file's",
+            "# contents. rustc writes one argument per line, so dropping or rewriting whole",
+            "# lines preserves its escaping; the rewritten copy is left beside the original",
+            "# inside rustc's own temp directory and is cleaned up with it.",
             "`$zigTarget = '$($wrapper.Target)'",
+            "`$droppedLinkArgPrefixes = @('--fix-cortex-a53-')",
+            "",
+            "function Test-DroppedLinkArg {",
+            "    param([string]`$Value)",
+            "    foreach (`$prefix in `$droppedLinkArgPrefixes) {",
+            "        if (`$Value.StartsWith(`$prefix)) { return `$true }",
+            "    }",
+            "    return `$false",
+            "}",
+            "",
+            "# Returns the argument to forward, or `$null when it must be dropped entirely.",
+            "function Convert-LinkArg {",
+            "    param([string]`$Value)",
+            "    if (Test-DroppedLinkArg `$Value) { return `$null }",
+            "    if (`$Value.StartsWith('-Wl,')) {",
+            "        `$linkArgs = `$Value.Substring(4).Split(',')",
+            "        `$keptLinkArgs = @(`$linkArgs | Where-Object { -not (Test-DroppedLinkArg `$_) })",
+            "        if (`$keptLinkArgs.Count -ne `$linkArgs.Count) {",
+            "            if (`$keptLinkArgs.Count -eq 0) { return `$null }",
+            "            return '-Wl,' + (`$keptLinkArgs -join ',')",
+            "        }",
+            "    }",
+            "    return `$Value",
+            "}",
+            "",
+            "function Convert-ResponseFile {",
+            "    param([string]`$Path)",
+            "    `$responseLines = [System.IO.File]::ReadAllLines(`$Path)",
+            "    `$keptLines = New-Object 'System.Collections.Generic.List[string]'",
+            "    `$changed = `$false",
+            "    foreach (`$line in `$responseLines) {",
+            "        `$converted = Convert-LinkArg `$line",
+            "        if (`$null -eq `$converted) { `$changed = `$true; continue }",
+            "        if (`$converted -ne `$line) { `$changed = `$true }",
+            "        `$keptLines.Add(`$converted)",
+            "    }",
+            "    if (-not `$changed) { return `$null }",
+            "    `$rewrittenPath = `$Path + '.zig-cc'",
+            "    [System.IO.File]::WriteAllText(`$rewrittenPath, [string]::Join([string][char]10, `$keptLines), (New-Object System.Text.UTF8Encoding(`$false)))",
+            "    return `$rewrittenPath",
+            "}",
             "",
             "`$filtered = New-Object 'System.Collections.Generic.List[string]'",
             "`$skipNext = `$false",
@@ -586,7 +659,15 @@ function Invoke-RustToolkitSetup {
             "    `$normalizedArg = `$arg.Trim('`"')",
             "    if (`$normalizedArg.StartsWith('--target=')) { continue }",
             "    if (`$normalizedArg -eq '-target' -or `$normalizedArg -eq '--target') { `$skipNext = `$true; continue }",
-            "    `$filtered.Add(`$arg)",
+            "    if (`$normalizedArg.StartsWith('@') -and (Test-Path -LiteralPath `$normalizedArg.Substring(1) -PathType Leaf)) {",
+            "        `$rewrittenResponse = Convert-ResponseFile -Path `$normalizedArg.Substring(1)",
+            "        if (`$null -ne `$rewrittenResponse) { `$filtered.Add('@' + `$rewrittenResponse); continue }",
+            "        `$filtered.Add(`$arg)",
+            "        continue",
+            "    }",
+            "    `$converted = Convert-LinkArg `$normalizedArg",
+            "    if (`$null -eq `$converted) { continue }",
+            "    if (`$converted -ne `$normalizedArg) { `$filtered.Add(`$converted) } else { `$filtered.Add(`$arg) }",
             "}",
             "",
             "& `"`$PSScriptRoot\..\zig\zig.exe`" cc -target `$zigTarget @filtered",
@@ -595,10 +676,7 @@ function Invoke-RustToolkitSetup {
         Set-Content -LiteralPath $ps1Path -Value $ps1Body -Encoding ASCII
 
         $cmdPath = Join-Path $wrappersRoot ($wrapper.BaseName + ".cmd")
-        $cmdBody = @(
-            "@echo off",
-            "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($wrapper.BaseName).ps1`" %*"
-        ) -join "`r`n"
+        $cmdBody = New-WrapperCmdBody -BaseName $wrapper.BaseName
         Set-Content -LiteralPath $cmdPath -Value $cmdBody -Encoding ASCII
     }
 
@@ -612,10 +690,7 @@ function Invoke-RustToolkitSetup {
     Set-Content -LiteralPath $zigArPs1Path -Value $zigArPs1Body -Encoding ASCII
 
     $zigArCmdPath = Join-Path $wrappersRoot "zig-ar.cmd"
-    $zigArCmdBody = @(
-        "@echo off",
-        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-ar.ps1`" %*"
-    ) -join "`r`n"
+    $zigArCmdBody = New-WrapperCmdBody -BaseName "zig-ar"
     Set-Content -LiteralPath $zigArCmdPath -Value $zigArCmdBody -Encoding ASCII
 
     $zigRanlibPs1Path = Join-Path $wrappersRoot "zig-ranlib.ps1"
@@ -627,30 +702,56 @@ function Invoke-RustToolkitSetup {
     Set-Content -LiteralPath $zigRanlibPs1Path -Value $zigRanlibPs1Body -Encoding ASCII
 
     $zigRanlibCmdPath = Join-Path $wrappersRoot "zig-ranlib.cmd"
-    $zigRanlibCmdBody = @(
-        "@echo off",
-        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-ranlib.ps1`" %*"
-    ) -join "`r`n"
+    $zigRanlibCmdBody = New-WrapperCmdBody -BaseName "zig-ranlib"
     Set-Content -LiteralPath $zigRanlibCmdPath -Value $zigRanlibCmdBody -Encoding ASCII
 
     $zigLibPs1Path = Join-Path $wrappersRoot "zig-lib.ps1"
     $zigLibPs1Body = @(
-        "# Wrapper: forwards args to ``zig lib`` to provide a repository-local MSVC-compatible archive tool.",
-        "# cc-rs may pass args with '-' prefixes (for example -out:X), but ``zig lib`` expects '/'.",
-        "`$translated = `$args | ForEach-Object {",
-        "    `$a = [string]`$_",
-        "    if (`$a -match '^-([A-Za-z])') { '/' + `$a.Substring(1) } else { `$a }",
+        "# Wrapper: forwards args to ``zig lib`` (lld-lib) for MSVC-compatible static archive creation.",
+        "#",
+        "# cc-rs (for x86_64-pc-windows-msvc) calls the archiver as:",
+        "#   zig-lib.cmd -out:DESTPATH [-nologo] [DESTPATH] OBJ1 OBJ2 ...",
+        "#",
+        "# PowerShell's -File invocation mode treats '-param:value' as named-parameter binding",
+        "# and splits '-out:D:\path\file.a' into two separate `$args entries:",
+        "#   `$args[0] = '-out'          (parameter name, colon stripped)",
+        "#   `$args[1] = 'D:\path\file.a' (parameter value as next element)",
+        "#",
+        "# We detect this split and reassemble before forwarding to zig lib.",
+        "# zig lib (lld-lib) accepts both '-out:X' and '/out:X' prefixes.",
+        "",
+        "`$zigExe = `"`$PSScriptRoot\..\zig\zig.exe`"",
+        "`$translated = [System.Collections.Generic.List[string]]::new()",
+        "",
+        "`$i = 0",
+        "while (`$i -lt `$args.Count) {",
+        "    `$a = [string]`$args[`$i]",
+        "",
+        "    # Detect the PowerShell-split form: '-out' followed by a path as the next arg.",
+        "    # A path value will not start with '-' or '/'.",
+        "    if (`$a -ceq '-out' -and (`$i + 1) -lt `$args.Count -and ([string]`$args[`$i + 1]) -notmatch '^[-/]') {",
+        "        `$translated.Add('/out:' + [string]`$args[`$i + 1])",
+        "        `$i += 2",
+        "        continue",
+        "    }",
+        "",
+        "    # Translate remaining '-X...' flags to '/X...' (MSVC lld-lib style).",
+        "    # Also handles the non-split form '-out:X' passed directly (e.g. unit tests).",
+        "    if (`$a -match '^-([A-Za-z])') {",
+        "        `$translated.Add('/' + `$a.Substring(1))",
+        "    } else {",
+        "        `$translated.Add(`$a)",
+        "    }",
+        "    `$i++",
         "}",
-        "& `"`$PSScriptRoot\..\zig\zig.exe`" lib @translated",
+        "",
+        "& `$zigExe lib @translated",
         "exit `$LASTEXITCODE"
     ) -join "`r`n"
     Set-Content -LiteralPath $zigLibPs1Path -Value $zigLibPs1Body -Encoding ASCII
 
     $zigLibCmdPath = Join-Path $wrappersRoot "zig-lib.cmd"
-    $zigLibCmdBody = @(
-        "@echo off",
-        "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0zig-lib.ps1`" %*"
-    ) -join "`r`n"
+    $zigLibCmdBody = New-WrapperCmdBody -BaseName "zig-lib"
     Set-Content -LiteralPath $zigLibCmdPath -Value $zigLibCmdBody -Encoding ASCII
 
     Write-Step "Running self-checks"

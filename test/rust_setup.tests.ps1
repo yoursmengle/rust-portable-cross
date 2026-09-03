@@ -111,4 +111,41 @@ Assert-True -Condition ($setupScriptBody -match 'zig-lib\.ps1') -Message "setup 
 Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("zig-" + "dll" + "tool"))) -Message "setup should not generate the legacy Windows import-library wrapper."
 Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("x86_64-" + "w64"))) -Message "setup should not generate non-MSVC Windows host wrappers."
 
+Assert-True -Condition ($setupScriptBody -match [regex]::Escape("'--fix-cortex-a53-'")) -Message "setup should strip the Cortex-A53 erratum linker flag that zig cc rejects."
+Assert-True -Condition ($setupScriptBody -match 'Convert-ResponseFile') -Message "setup should filter linker args inside rustc @response files, not just argv."
+Assert-True -Condition ($setupScriptBody -match 'New-WrapperCmdBody') -Message "setup should build every .cmd shim from a single definition."
+Assert-True -Condition ($setupScriptBody -match [regex]::Escape('for %%I in (pwsh.exe) do set')) -Message "generated .cmd shims should prefer PowerShell 7 when it is available."
+
+# rustc spills the link command line into an @response file, so a wrapper that only
+# filters argv silently does nothing. Exercise the shipped wrapper end to end.
+$aarch64Wrapper = Join-Path $PSScriptRoot "..\tools\wrappers\aarch64-linux-musl-gcc.ps1"
+$zigExeForWrapper = Join-Path $PSScriptRoot "..\tools\zig\zig.exe"
+if ((Test-Path -LiteralPath $aarch64Wrapper -PathType Leaf) -and (Test-Path -LiteralPath $zigExeForWrapper -PathType Leaf)) {
+    $wrapperTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rpc-wrapper-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $wrapperTempRoot -Force | Out-Null
+    $previousZigLocalCache = $env:ZIG_LOCAL_CACHE_DIR
+    $previousZigGlobalCache = $env:ZIG_GLOBAL_CACHE_DIR
+    try {
+        $env:ZIG_LOCAL_CACHE_DIR = (Resolve-Path (Join-Path $PSScriptRoot "..\tools")).Path + "\zig-local-cache"
+        $env:ZIG_GLOBAL_CACHE_DIR = (Resolve-Path (Join-Path $PSScriptRoot "..\tools")).Path + "\zig-global-cache"
+
+        $responsePath = Join-Path $wrapperTempRoot "linker-arguments"
+        [System.IO.File]::WriteAllText($responsePath, "-Wl,--fix-cortex-a53-843419`n--version")
+
+        $wrapperOutput = & $aarch64Wrapper "@$responsePath" 2>&1 | Out-String
+        Assert-Equal -Actual $LASTEXITCODE -Expected 0 -Message "aarch64 wrapper should succeed despite the Cortex-A53 erratum flag.`n$wrapperOutput"
+        Assert-True -Condition ($wrapperOutput -notmatch 'unsupported linker arg') -Message "aarch64 wrapper should strip linker args zig cc rejects.`n$wrapperOutput"
+        Assert-True -Condition (Test-Path -LiteralPath "$responsePath.zig-cc" -PathType Leaf) -Message "aarch64 wrapper should rewrite the response file it was handed."
+        Assert-Equal -Actual ([System.IO.File]::ReadAllText("$responsePath.zig-cc")) -Expected "--version" -Message "rewritten response file should keep every argument zig cc accepts."
+    }
+    finally {
+        $env:ZIG_LOCAL_CACHE_DIR = $previousZigLocalCache
+        $env:ZIG_GLOBAL_CACHE_DIR = $previousZigGlobalCache
+        Remove-Item -LiteralPath $wrapperTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+else {
+    Write-Host "Skipping aarch64 wrapper behaviour test: the toolkit wrapper or zig.exe is not installed."
+}
+
 Write-Host "rust_setup tests passed."
