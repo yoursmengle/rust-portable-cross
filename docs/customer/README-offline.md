@@ -66,7 +66,7 @@ If a target was not selected during installation, its build script or wrapper fi
 - For `x86_64-pc-windows-msvc`, prefer `rust_build_x64_win_native.ps1`. It needs **no Visual Studio,
   no MSVC linker (`link.exe`) and no Windows SDK**: linking uses the bundled `rust-lld` together with
   the Windows import libraries this installer ships under
-  `tools\sysroot_64-pc-windows-msvc\lib`. Those libraries take precedence even on a machine
+  `tools\sysroot\x86_64-pc-windows-msvc\lib`. Those libraries take precedence even on a machine
   that does have Visual Studio installed, so builds are identical everywhere.
 - Executables built for `x86_64-pc-windows-msvc` run on **Windows 10 / Windows Server 2016 and later**.
   They use the operating system's own C runtime (`ucrtbase.dll`) and need no Visual C++ redistributable
@@ -74,7 +74,7 @@ If a target was not selected during installation, its build script or wrapper fi
 - To verify that a build used nothing from outside this installation, run `check_tool_x64_win.ps1`. It
   builds with the host Visual Studio environment scrubbed and fails if any library resolved from
   outside the installation directory.
-- If the link inputs are ever missing, regenerate them offline with `scriptsuild_win_link_inputs.ps1`.
+- If the link inputs are ever missing, regenerate them offline with `scripts\build_win_link_inputs.ps1`.
   They are derived from the bundled Zig installation, so this needs no network access.
 - One limitation: a crate whose C code genuinely requires Microsoft's own headers (rather than the
   bundled mingw-w64 headers) still needs a host MSVC installation. This shows up as a compile error

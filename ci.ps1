@@ -325,6 +325,215 @@ function Test-PowerShellSyntax {
     return New-Outcome -Status "Passed" -Reason "$checked tracked script(s) parsed"
 }
 
+# Roots whose contents are generated rather than tracked: the toolchain rustup and
+# cargo install into, the Zig distribution, the sysroot build_win_link_inputs.ps1
+# produces, the downloads cache, the release staging tree, and cargo's output.
+# Documentation names paths under these legitimately, but a clone that has not been
+# provisioned does not have them, and this check has to reach a verdict in the
+# default lane. Adding a root is one line here.
+$script:GeneratedDocRoots = @(
+    "tools/sysroot",
+    "tools/zig",
+    "tools/zig-global-cache",
+    "tools/zig-local-cache",
+    "tools/rustup",
+    "tools/rustup-home",
+    "tools/cargo-home",
+    "tools/downloads",
+    "dist",
+    "target",
+    # Not repository content: core.hooksPath redirects away from it, so
+    # .git\hooks\pre-commit is legitimately documented and legitimately absent.
+    ".git"
+)
+
+# Documents whose quoted paths must resolve: the ones that tell a reader what to run
+# or where to look. Everything else tracked - planning records, specifications, and
+# handoff correspondence - is still scanned for control characters but not for path
+# resolution, because such documents legitimately name paths that do not exist here:
+# a path as it stood before a rename, a path a rejected proposal would have created,
+# a source file in another project. Failing on those would force the rewriting of
+# records whose whole value is that they were not rewritten.
+$script:InstructionalDocPatterns = @(
+    "README.md",
+    "docs/customer/*"
+)
+
+# Splits a line into its inline code spans. Fenced blocks are handled by the caller:
+# a fence holds transcripts and templates, not claims about this repository's layout.
+function Get-InlineCodeSpans {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+
+    $spans = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($match in [regex]::Matches($Line, '`([^`]+)`')) {
+        $spans.Add($match.Groups[1].Value)
+    }
+    return $spans
+}
+
+# Reduces a code span to the repository-relative path it documents, or $null when the
+# span does not document one.
+#
+# Only a span carrying a separator is treated as a path: `link.exe` and `ucrtbase.dll`
+# appear in the customer README as operating-system files and are correctly documented,
+# so widening this to bare names would fail the check on correct documentation.
+function ConvertTo-DocumentedPath {
+    param([Parameter(Mandatory = $true)][string]$Span)
+
+    $trimmed = $Span.Trim()
+    if ($trimmed -notmatch '[\\/]') { return $null }
+
+    # A span may carry arguments after the path; the path is the first token.
+    $candidate = ($trimmed -split '\s+')[0]
+
+    # Angle brackets mark a value the reader substitutes.
+    if ($candidate -match '[<>]') { return $null }
+
+    $candidate = $candidate -replace '\\', '/'
+    $candidate = $candidate -replace '^\./', ''
+
+    # A trailing ":12" or ":60-62" points at a line, not at a different file.
+    $candidate = $candidate -replace ':\d+(-\d+)?$', ''
+
+    $candidate = $candidate.TrimEnd('/')
+    if (-not $candidate) { return $null }
+
+    # An ellipsis stands in for elided segments, so the path is not a real one.
+    if (($candidate -split '/') -contains '...') { return $null }
+
+    # An absolute path, a UNC path or a URL is not a repository-relative path.
+    if ($candidate -match '^[A-Za-z]:' -or $candidate.StartsWith('//') -or $candidate -match '^[A-Za-z][A-Za-z0-9+.-]*:') {
+        return $null
+    }
+    if ($candidate.StartsWith('/')) { return $null }
+    if ($candidate -match '(^|/)\.\.(/|$)') { return $null }
+
+    return $candidate
+}
+
+# Fails when tracked documentation misspells a path into this repository, or carries a
+# control character.
+#
+# The two checks are independent and catch different things. The control-character scan
+# is the one that catches an escape-decoding accident - a "\b" that became a backspace,
+# a "\x86" that became U+0086 - which is invisible in most viewers and takes the path
+# separator with it. The path scan catches a renamed script or a moved sample, and
+# cannot see an escape accident under a generated root.
+function Test-DocumentationIntegrity {
+    $git = Get-GitPath
+    if (-not $git) {
+        return New-Outcome -Status "Skipped" -Reason "git was not found on PATH, so the tracked document list is unavailable"
+    }
+
+    $listed = Invoke-Captured -FilePath $git -Arguments @("ls-files", "*.md")
+    if ($listed.ExitCode -ne 0) {
+        return New-Outcome -Status "Skipped" -Reason "'git ls-files' failed, so the tracked document list is unavailable" -Output $listed.Output
+    }
+
+    $failures = New-Object 'System.Collections.Generic.List[string]'
+    $documents = 0
+    $resolved = 0
+
+    foreach ($relative in ($listed.Output -split "\r?\n")) {
+        $trimmedRelative = $relative.Trim()
+        if (-not $trimmedRelative) { continue }
+
+        $path = Join-Path $RepoRoot $trimmedRelative
+        # A file can be tracked and already deleted in the working tree.
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+
+        $documents++
+
+        $isInstructional = $false
+        foreach ($pattern in $script:InstructionalDocPatterns) {
+            if ($trimmedRelative -like $pattern) {
+                $isInstructional = $true
+                break
+            }
+        }
+
+        $text = [System.IO.File]::ReadAllText($path)
+
+        # Split on the well-formed terminator only, so a lone carriage return
+        # survives into a line and is reported as the control character it is.
+        $lines = $text -split "\r\n|\n"
+        $inFence = $false
+
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            $number = $i + 1
+
+            foreach ($character in $line.ToCharArray()) {
+                $code = [int]$character
+                # Tab is the only C0 character a document may carry; the line
+                # terminators are already gone by this point. The C1 range is
+                # rejected outright - nothing puts one in a document on purpose.
+                $isC0 = $code -lt 0x20 -and $code -ne 0x09
+                $isC1 = $code -ge 0x7F -and $code -le 0x9F
+                if ($isC0 -or $isC1) {
+                    $failures.Add(("{0}(line {1}): control character U+{2:X4}" -f $trimmedRelative, $number, $code))
+                }
+            }
+
+            if ($line.TrimStart().StartsWith('```')) {
+                $inFence = -not $inFence
+                continue
+            }
+            if ($inFence) { continue }
+            if (-not $isInstructional) { continue }
+
+            foreach ($span in (Get-InlineCodeSpans -Line $line)) {
+                $candidate = ConvertTo-DocumentedPath -Span $span
+                if (-not $candidate) { continue }
+
+                $segments = $candidate -split '/'
+
+                # A path whose leading segment does not exist here belongs to another
+                # repository - documentation addressed to an integrating team cites
+                # those legitimately, and this check has no way to resolve them. The
+                # cost is that a typo in the leading segment escapes; a typo anywhere
+                # after it is still caught.
+                if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $segments[0]))) { continue }
+
+                # Generated roots exist only after provisioning, and the default lane
+                # runs in clones that have not been provisioned.
+                $isGenerated = $false
+                foreach ($root in $script:GeneratedDocRoots) {
+                    if ($candidate -eq $root -or $candidate.StartsWith("$root/")) {
+                        $isGenerated = $true
+                        break
+                    }
+                }
+                if ($isGenerated) { continue }
+
+                $native = Join-Path $RepoRoot ($candidate -replace '/', '\')
+
+                # A pattern is documented as a pattern: it has to match something,
+                # not to name a file called "*.tests.ps1".
+                $exists = if ($candidate -match '[*?]') {
+                    [bool](Test-Path -Path $native)
+                }
+                else {
+                    Test-Path -LiteralPath $native
+                }
+
+                if ($exists) {
+                    $resolved++
+                }
+                else {
+                    $failures.Add(("{0}(line {1}): documented path does not exist: {2}" -f $trimmedRelative, $number, $span.Trim()))
+                }
+            }
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        return New-Outcome -Status "Failed" -Reason "$($failures.Count) problem(s) in $documents tracked document(s)" -Output ($failures -join [Environment]::NewLine)
+    }
+
+    return New-Outcome -Status "Passed" -Reason "$documents tracked document(s) clean, $resolved documented path(s) resolved"
+}
+
 # Returns the external check that validates the OpenSpec artifacts, or $null with a
 # skip reason when there is nothing to validate or no CLI to validate it with. A clone
 # without the openspec CLI must still be able to pass the default lane.
@@ -532,6 +741,7 @@ else {
 Write-Host ""
 
 Invoke-Check -Name "powershell-syntax" -Body { Test-PowerShellSyntax }
+Invoke-Check -Name "documentation-integrity" -Body { Test-DocumentationIntegrity }
 
 $powerShellExe = Get-PowerShellExecutable
 $externalChecks = New-Object 'System.Collections.Generic.List[object]'

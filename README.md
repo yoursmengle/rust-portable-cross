@@ -284,7 +284,7 @@ staged content, it warns when tracked files have unstaged changes.
 Individual suites can still be run directly:
 
 ```powershell
-pwsh -NoProfile -File .	estust_setup.tests.ps1
+pwsh -NoProfile -File .\test\rust_setup.tests.ps1
 ```
 
 ### Hooking the gate to `git commit`

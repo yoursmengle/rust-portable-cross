@@ -176,6 +176,165 @@ finally {
     Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Documentation integrity: control characters ----------------------------
+
+# Every case here writes its documents byte-for-byte rather than through a text
+# helper: the defects under test ARE byte-level, and a helper that normalises line
+# endings or re-encodes would erase the thing being asserted.
+function Add-GateDocument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Body
+    )
+
+    $path = Join-Path $RepoPath $Name
+    $parent = Split-Path -Parent $path
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    [System.IO.File]::WriteAllText($path, $Body, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+
+    # The two defects this check exists for: a "\b" decoded into a backspace and a
+    # "\x86" decoded into U+0086. Both are invisible in a viewer and both take the
+    # path separator with them.
+    $backspace = [char]0x08
+    $c1 = [char]0x86
+    Add-GateDocument -RepoPath $repo -Name "notes.md" -Body "Run ``scripts$($backspace)uild.ps1``.`n"
+    Add-GateDocument -RepoPath $repo -Name "other.md" -Body "See ``tools\sysroot$($c1)_64-pc-windows-msvc``.`n"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 1 -Message "a control character in a document should fail the run.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'FAIL\s+documentation-integrity') -Message "the documentation check should be the one that fails.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'notes\.md\(line 1\): control character U\+0008') -Message "a backspace should be named by document, line and code point.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'other\.md\(line 1\): control character U\+0086') -Message "a C1 character should be named by document, line and code point.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# A carriage return that is not followed by a line feed is a mangled terminator,
+# not a line ending: this is how "\r" arrives when an escape is decoded.
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+    Add-GateDocument -RepoPath $repo -Name "notes.md" -Body "first$([char]0x0D)second`n"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 1 -Message "a stray carriage return should fail the run.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'notes\.md\(line 1\): control character U\+000D') -Message "a stray CR should be reported as a control character.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- Documentation integrity: path resolution -------------------------------
+
+# The path scan covers instructional documentation - the front page and the customer
+# documentation - and reaches a verdict without any of the generated directories
+# present, because this is the lane that runs on commit in an unprovisioned clone.
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+    New-Item -ItemType Directory -Path (Join-Path $repo "scripts") -Force | Out-Null
+    Add-GateDocument -RepoPath $repo -Name "scripts\real.ps1" -Body "exit 0"
+
+    # tools\ exists but tools\sysroot does not: that is exactly the shape of an
+    # unprovisioned clone, and it is what makes the generated-root exemption the
+    # rule under test here rather than the foreign-repository one.
+    New-Item -ItemType Directory -Path (Join-Path $repo "tools") -Force | Out-Null
+    Add-GateDocument -RepoPath $repo -Name "tools\.gitignore" -Body "sysroot/`n"
+
+    $body = @(
+        "Run ``.\scripts\real.ps1`` to build.",
+        "It needs no ``link.exe`` and no ``ucrtbase.dll``.",
+        "Pass ``.\scripts\real.ps1 -ProjectPath <your-project>`` for another project.",
+        "Put your crate in ``<your-project>\src``.",
+        "Link inputs live under ``tools\sysroot\x86_64-pc-windows-msvc\lib``.",
+        "The downstream constant is in ``crates\hec-core\src\health.rs``.",
+        "Suites are ``test\*.tests.ps1``.",
+        "See ``scripts\real.ps1:12`` for the entry point.",
+        "Hooks live in ``.git\hooks\pre-commit``.",
+        ""
+    ) -join "`n"
+    Add-GateDocument -RepoPath $repo -Name "README.md" -Body $body
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 0 -Message "documentation whose paths all resolve should pass.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'PASS\s+documentation-integrity') -Message "the documentation check should pass.`n$($run.Output)"
+
+    # A skip would mean the check declined to run; in a clone with no toolchain it
+    # must still reach a verdict.
+    Assert-True -Condition ($run.Output -notmatch 'SKIP\s+documentation-integrity') -Message "the documentation check must not skip itself for want of a toolchain.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'documented path\(s\) resolved') -Message "a pass should say how many paths it resolved.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# A path into a directory this repository really has, whose leaf does not exist.
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+    New-Item -ItemType Directory -Path (Join-Path $repo "scripts") -Force | Out-Null
+    Add-GateDocument -RepoPath $repo -Name "scripts\real.ps1" -Body "exit 0"
+    Add-GateDocument -RepoPath $repo -Name "README.md" -Body "Run ``.\scripts\renamed.ps1`` to build.`n"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 1 -Message "a documented path that does not exist should fail the run.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'README\.md\(line 1\): documented path does not exist') -Message "the failure should name the document and line.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'renamed\.ps1') -Message "the failure should name the path.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# A pattern has to match something, but is not required to name a literal file.
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+    Add-GateDocument -RepoPath $repo -Name "README.md" -Body "Suites are ``test\*.missing``.`n"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 1 -Message "a pattern matching nothing should fail the run.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match '\*\.missing') -Message "the failure should name the pattern.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# A planning record or received handoff names paths that do not exist here on
+# purpose. Those documents are still scanned for control characters, but their
+# paths are out of scope - rewriting them would destroy the record.
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+
+    # scripts\ exists and scripts\gone.ps1 does not, so scope is the only thing that
+    # keeps this path out of the scan: neither the foreign-repository rule nor the
+    # generated-root rule applies to it.
+    New-Item -ItemType Directory -Path (Join-Path $repo "scripts") -Force | Out-Null
+    Add-GateDocument -RepoPath $repo -Name "scripts\real.ps1" -Body "exit 0"
+    Add-GateDocument -RepoPath $repo -Name "docs\handoff.md" -Body "The old build ran ``scripts\gone.ps1``.`n"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 0 -Message "a non-instructional document's paths should not be resolved.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'PASS\s+documentation-integrity') -Message "a non-instructional document should not fail the path scan.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- Working-tree warning ---------------------------------------------------
 
 $repo = New-GateRepo
