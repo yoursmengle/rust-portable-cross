@@ -116,6 +116,11 @@ exit 0
     New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\csrc\probe.c")
     New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_thumbv7em.ps1")
+
+    # Development-time gate files: present in the source tree, and expected to stay
+    # out of everything a customer receives.
+    New-TestFile -Path (Join-Path $toolkitRoot "ci.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot ".githooks\pre-commit")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup\rustup.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\cargo.exe")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\cargo-home\bin\rustc.exe")
@@ -186,6 +191,8 @@ exit 0
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf"))) -Message "core payload should exclude the thumbv7em rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "ci.ps1"))) -Message "core payload should not contain the development commit gate"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot ".githooks"))) -Message "core payload should not contain the development git hooks"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\scripts\rust_build_armv7.ps1")) -Message "armv7 payload should contain its build script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "armv7\tools\wrappers\arm-linux-musleabihf-gcc.cmd")) -Message "armv7 payload should contain its wrapper"

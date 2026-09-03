@@ -103,6 +103,9 @@ Build outputs are placed under `target/<triple>/release/` inside your project di
 
 ```
 rust-portable-cross/
+├── ci.ps1                      # Verification entry point / commit gate
+├── .githooks/
+│   └── pre-commit              # Runs ci.ps1; installed with ci.ps1 -InstallHook
 ├── config/
 │   └── .cargo/
 │       └── config.toml        # Cargo linker config for supported targets
@@ -126,7 +129,8 @@ rust-portable-cross/
 │   ├── rust_build_armv7.ps1    # Cross-build for armv7-unknown-linux-musleabihf
 │   ├── rust_build_thumbv7em.ps1 # Bare-metal build for thumbv7em-none-eabihf
 │   ├── build_win_link_inputs.ps1 # Generates the Windows link inputs from bundled Zig
-│   └── rust_setup.tests.ps1    # Unit tests for setup script logic
+│   └── prepare_offline_release.ps1 # Builds the customer offline payload
+├── test/                       # Test suites, all run by ci.ps1
 └── tools/                     # All toolchain binaries (git-ignored binaries)
     ├── cargo-home/            # CARGO_HOME
     ├── rustup-home/           # RUSTUP_HOME
@@ -250,13 +254,58 @@ By default, `RUSTUP_DIST_SERVER` is set to `https://rsproxy.cn` and `RUSTUP_UPDA
 
 ---
 
-## Running Tests
+## Running Tests and the Commit Gate
+
+`ci.ps1` is the single verification entry point. It runs the repository's checks concurrently and exits
+non-zero if any of them fails, reporting every failure in one run rather than stopping at the first.
 
 ```powershell
-.\scripts\rust_setup.tests.ps1
+.\ci.ps1          # default lane: about 12 s, and needs no installed toolchain
+.\ci.ps1 -Full    # adds the four check_tool_*.ps1 cross builds (minutes, needs tools\)
 ```
 
-Tests cover internal helper functions (path resolution, URI list construction, mirror logic) without executing the full setup.
+The default lane runs:
+
+| Check | What it covers |
+|---|---|
+| `powershell-syntax` | Every tracked `.ps1` parses |
+| `test/*.tests.ps1` | Each suite under `test\`, discovered rather than listed |
+| `openspec-validate` | `openspec validate --all --strict` over the OpenSpec artifacts |
+
+A check whose prerequisite is missing reports `SKIP` with the reason - a skip is not a pass, and the
+verdict says how many checks did not run. Because the gate verifies the working tree rather than the
+staged content, it warns when tracked files have unstaged changes.
+
+Individual suites can still be run directly:
+
+```powershell
+pwsh -NoProfile -File .	estust_setup.tests.ps1
+```
+
+### Hooking the gate to `git commit`
+
+```powershell
+.\ci.ps1 -InstallHook
+```
+
+This points the clone's `core.hooksPath` at the version-controlled `.githooks\`, so `git commit` runs
+the default lane and refuses the commit when it fails. Because the hook is version-controlled, a fix to
+it arrives with a normal `git pull` instead of needing a re-install.
+
+It is a per-clone opt-in: git configuration cannot be set by a checkout, so each developer runs it once.
+Installing again is a no-op. The installer refuses to overwrite a `core.hooksPath` it did not set, since
+that setting replaces `.git\hooks` wholesale and overwriting it would silently disable whatever hooks
+that path provides.
+
+| Bypass | Effect |
+|---|---|
+| `git commit --no-verify` | Skips the gate for one commit |
+| `$env:RUST_PORTABLE_CROSS_SKIP_CI = "1"` | Skips the gate for scripted or automated commits |
+| `git config --unset core.hooksPath` | Uninstalls the gate from this clone |
+
+The gate also skips itself while a merge or rebase is in progress, so it never stands between you and a
+conflict resolution. Every skip says so on its own line rather than reporting a pass.
+
 
 ---
 

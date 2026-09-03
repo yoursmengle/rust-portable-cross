@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# Commit gate: runs ci.ps1's default lane and refuses the commit when it fails.
+#
+# Installed by `ci.ps1 -InstallHook`, which points core.hooksPath at this directory.
+# Because the hook is version-controlled, a fix to it reaches every clone through a
+# normal `git pull` instead of needing a re-install.
+#
+# Bypasses:
+#   git commit --no-verify              one commit
+#   RUST_PORTABLE_CROSS_SKIP_CI=1       scripted or automated commits
+#   git config --unset core.hooksPath   uninstall the gate entirely
+
+set -u
+
+if [ -n "${RUST_PORTABLE_CROSS_SKIP_CI:-}" ]; then
+    echo "commit gate: SKIPPED - RUST_PORTABLE_CROSS_SKIP_CI is set. Nothing was verified."
+    exit 0
+fi
+
+git_dir=$(git rev-parse --git-dir) || exit 1
+
+# Never stand between a developer and a conflict resolution.
+if [ -f "$git_dir/MERGE_HEAD" ] || [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+    echo "commit gate: SKIPPED - a merge or rebase is in progress. Nothing was verified."
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel) || exit 1
+
+# Git for Windows runs hooks under its own sh, where pwsh is often not on PATH.
+# Same resolution order the repository's tools/wrappers/*.cmd shims already use.
+ps_exe=""
+if command -v pwsh >/dev/null 2>&1; then
+    ps_exe="pwsh"
+elif [ -x "${PROGRAMFILES:-}/PowerShell/7/pwsh.exe" ]; then
+    ps_exe="${PROGRAMFILES}/PowerShell/7/pwsh.exe"
+elif command -v powershell >/dev/null 2>&1; then
+    ps_exe="powershell"
+else
+    echo "commit gate: FAILED - no PowerShell interpreter found." >&2
+    echo "  Looked for: pwsh on PATH, %ProgramFiles%\PowerShell\7\pwsh.exe, powershell on PATH." >&2
+    echo "  Install PowerShell, or bypass this commit with: git commit --no-verify" >&2
+    exit 1
+fi
+
+"$ps_exe" -NoProfile -ExecutionPolicy Bypass -File "$repo_root/ci.ps1"
+status=$?
+
+if [ "$status" -ne 0 ]; then
+    echo "" >&2
+    echo "commit gate: REFUSED - see the failures above." >&2
+    echo "  Re-run by hand with: ./ci.ps1" >&2
+    echo "  Commit anyway with:  git commit --no-verify" >&2
+fi
+
+exit $status
