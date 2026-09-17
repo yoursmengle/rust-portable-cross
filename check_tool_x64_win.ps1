@@ -25,7 +25,7 @@ $repoRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSCommandPath)).Path
 $toolsRoot = Join-Path $repoRoot "tools"
 $winSysroot = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc"
 $winSysrootLib = Join-Path $winSysroot "lib"
-$rustMsvcBin = Join-Path $toolsRoot "rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
+$rustMsvcBin = Join-Path $toolsRoot "rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
 $linkerExe = Join-Path $rustMsvcBin "rust-lld.exe"
 $buildScript = Join-Path $repoRoot "scripts\rust_build_x64_win_native.ps1"
 $generatorCommand = ".\scripts\build_win_link_inputs.ps1"
@@ -228,7 +228,7 @@ fn main() {
     try {
         $env:CARGO_HOME = Join-Path $toolsRoot "cargo-home"
         $env:RUSTUP_HOME = Join-Path $toolsRoot "rustup-home"
-        $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
+        $env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
         $env:PATH = "$(Join-Path $toolsRoot 'cargo-home\bin');$rustMsvcBin;$env:PATH"
 
         $probeExe = Join-Path $probeRoot "probe.exe"

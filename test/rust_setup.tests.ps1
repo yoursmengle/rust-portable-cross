@@ -123,7 +123,7 @@ function New-PayloadTestFile {
 
 try {
     $hostTriple = "x86_64-pc-windows-msvc"
-    $toolchainRoot = Join-Path $payloadTempRoot "toolchains\stable-x86_64-pc-windows-msvc"
+    $toolchainRoot = Join-Path $payloadTempRoot "toolchains\1.98.0-x86_64-pc-windows-msvc"
     $hostLibdir = Join-Path $toolchainRoot "lib\rustlib\$hostTriple\lib"
     $hostFiles = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
     foreach ($fileName in $hostFiles) {
@@ -168,6 +168,10 @@ finally {
 }
 
 $setupScriptBody = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\scripts\rust_setup.ps1") -Raw -Encoding UTF8
+Assert-True -Condition ($setupScriptBody -match [regex]::Escape("1.98.0-x86_64-pc-windows-msvc")) -Message "setup should install the pinned Rust 1.98.0 toolchain."
+Assert-True -Condition ($setupScriptBody -match 'Expected pinned Rust 1\.98\.0') -Message "setup should reject a managed rustc with the wrong version."
+Assert-True -Condition ($setupScriptBody -match '"default"') -Message "setup should persist the pinned toolchain as rustup default."
+Assert-True -Condition ($setupScriptBody -match 'Install-PinnedRustToolchain') -Message "setup should retry the pinned toolchain across configured distribution servers."
 Assert-True -Condition ($setupScriptBody -match 'zig-lib\.ps1') -Message "setup should generate the MSVC-compatible zig-lib wrapper."
 Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("zig-" + "dll" + "tool"))) -Message "setup should not generate the legacy Windows import-library wrapper."
 Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("x86_64-" + "w64"))) -Message "setup should not generate non-MSVC Windows host wrappers."

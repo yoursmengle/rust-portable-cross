@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
 }
 . $rustTargetPayloadScript
 
-$script:HostToolchain = "stable-x86_64-pc-windows-msvc"
+$script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 
 function Ensure-Directory {
@@ -221,7 +221,7 @@ function Set-RustupSettings {
     $settingsPath = Join-Path $InstallRoot "tools\rustup-home\settings.toml"
     $content = @(
         'version = "12"',
-        'default_toolchain = "stable-x86_64-pc-windows-msvc"',
+        'default_toolchain = "1.98.0-x86_64-pc-windows-msvc"',
         'profile = "minimal"',
         '',
         '[overrides]'
@@ -449,6 +449,10 @@ function Test-OfflineInstall {
 
     if ($rustcVersion -notmatch "^rustc ") {
         throw "rustc -V returned unexpected output: $rustcVersion"
+    }
+
+    if ($rustcVersion -notmatch "^rustc 1\.98\.0(?:\s|$)") {
+        throw "Expected pinned Rust 1.98.0, but installed rustc reported: $rustcVersion"
     }
 
     if (($rustcVerbose | Where-Object { $_ -match "^host: " }) -notcontains "host: $script:HostTriple") {

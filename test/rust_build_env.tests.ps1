@@ -357,4 +357,8 @@ function Assert-Thumbv7emEnvBeforeCargoBuild {
 Assert-Thumbv7emEnvBeforeCargoBuild `
     -ScriptPath (Join-Path $repoRoot "scripts\rust_build_thumbv7em.ps1")
 
+$rustEnvBody = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\rust_env.ps1") -Raw -Encoding UTF8
+Assert-True -Condition ($rustEnvBody -match [regex]::Escape("1.98.0-x86_64-pc-windows-msvc")) -Message "rust_env should activate the pinned Rust 1.98.0 toolchain."
+Assert-True -Condition ($rustEnvBody -match 'Expected pinned Rust 1\.98\.0') -Message "rust_env should reject a managed rustc with the wrong version."
+
 Write-Host "rust_build_env tests passed."

@@ -15,7 +15,7 @@ $zigRoot = Join-Path $toolsRoot "zig"
 $zigLocalCache = Join-Path $toolsRoot "zig-local-cache"
 $zigGlobalCache = Join-Path $toolsRoot "zig-global-cache"
 $wrappersRoot = Join-Path $toolsRoot "wrappers"
-$rustMsvcBin = Join-Path $rustupHome "toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
+$rustMsvcBin = Join-Path $rustupHome "toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
 $cargoExe = Join-Path $cargoHome "bin\cargo.exe"
 $rustcExe = Join-Path $cargoHome "bin\rustc.exe"
 $rustupExe = Join-Path $cargoHome "bin\rustup.exe"
@@ -59,7 +59,7 @@ New-Item -ItemType Directory -Path $zigGlobalCache -Force | Out-Null
 $env:RUST_PORTABLE_CROSS_ROOT = $root
 $env:CARGO_HOME = $cargoHome
 $env:RUSTUP_HOME = $rustupHome
-$env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
+$env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$rustMsvcBin;$env:PATH"
@@ -119,6 +119,14 @@ Write-Host "CARGO_HOME=$env:CARGO_HOME"
 Write-Host "RUSTUP_HOME=$env:RUSTUP_HOME"
 Write-Host "ZIG_LOCAL_CACHE_DIR=$env:ZIG_LOCAL_CACHE_DIR"
 Write-Host "ZIG_GLOBAL_CACHE_DIR=$env:ZIG_GLOBAL_CACHE_DIR"
+$rustcVersion = [string]::Join([Environment]::NewLine, @(& $rustcExe -V 2>&1)).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Managed rustc could not be executed: $rustcVersion"
+}
+if ($rustcVersion -notmatch "^rustc 1\.98\.0(?:\s|$)") {
+    throw "Expected pinned Rust 1.98.0, but managed rustc reported: $rustcVersion"
+}
+
 & $cargoExe -V
-& $rustcExe -V
+Write-Host $rustcVersion
 & $rustupExe target list --installed

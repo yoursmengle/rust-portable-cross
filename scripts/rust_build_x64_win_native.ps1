@@ -44,7 +44,7 @@ $rustupHome = Join-Path $toolsRoot "rustup-home"
 $rustupBinRoot = Join-Path $toolsRoot "rustup"
 $zigRoot = Join-Path $toolsRoot "zig"
 $wrappersRoot = Join-Path $toolsRoot "wrappers"
-$rustMsvcBin = Join-Path $rustupHome "toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
+$rustMsvcBin = Join-Path $rustupHome "toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin"
 $cargoExe = Join-Path $cargoHome "bin\cargo.exe"
 $rustcExe = Join-Path $cargoHome "bin\rustc.exe"
 $rustupExe = Join-Path $cargoHome "bin\rustup.exe"
@@ -132,7 +132,7 @@ New-DirectoryIfMissing -Path $zigGlobalCache
 $env:RUST_PORTABLE_CROSS_ROOT = $toolkitRoot
 $env:CARGO_HOME = $cargoHome
 $env:RUSTUP_HOME = $rustupHome
-$env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
+$env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
 $env:PATH = "$nativeWrapperRoot;$PSScriptRoot;$wrappersRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$rustMsvcBin;$env:PATH"

@@ -2,7 +2,7 @@
 
 **日期：** 2026-09-03
 **答复对象：** `docs/toolkit-handoff.md`（HEC 侧来件，已按原样纳入版本控制，未作任何修改）
-**答复方：** rust-portable-cross，产品版本 1.4.5，宿主工具链 `stable-x86_64-pc-windows-msvc`
+**答复方：** rust-portable-cross，产品版本 1.4.5，宿主工具链 `1.98.0-x86_64-pc-windows-msvc`
 
 ---
 

@@ -62,7 +62,7 @@ try {
     $layout = [ordered]@{
         productName = "Rust Portable Cross"
         productVersion = "9.9.9"
-        hostToolchain = "stable-x86_64-pc-windows-msvc"
+        hostToolchain = "1.98.0-x86_64-pc-windows-msvc"
         hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
             "cargo-x86_64-pc-windows-msvc",
@@ -88,7 +88,7 @@ try {
 
     $layout | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $tempRoot "install-layout.json") -Encoding ASCII
     New-TestFile -Path (Join-Path $tempRoot "tools\cargo-home\bin\cargo.exe")
-    New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\placeholder.txt")
+    New-TestFile -Path (Join-Path $tempRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\placeholder.txt")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_armv7.ps1")
     New-TestFile -Path (Join-Path $tempRoot "scripts\rust_build_aarch64.ps1")
     $staleWindowsHostTriple = "x86_64-pc-windows-" + "g" + "nu"
@@ -115,9 +115,9 @@ linker = "aarch64-linux-musl-gcc.cmd"
     Invoke-FinalizeOfflineInstall -InstallRoot $tempRoot -SelectedComponents "armv7" -InstallScope "perUser"
 
     $settingsContent = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\settings.toml") -Raw
-    Assert-True -Condition ($settingsContent -match 'default_toolchain = "stable-x86_64-pc-windows-msvc"') -Message "finalize should write MSVC rustup settings"
+    Assert-True -Condition ($settingsContent -match 'default_toolchain = "1.98.0-x86_64-pc-windows-msvc"') -Message "finalize should write pinned MSVC rustup settings"
 
-    $components = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components")
+    $components = Get-Content -LiteralPath (Join-Path $tempRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\components")
     Assert-True -Condition ($components -contains "rust-std-armv7-unknown-linux-musleabihf") -Message "selected armv7 target should be added to the components file"
     Assert-True -Condition (-not ($components -contains "rust-std-aarch64-unknown-linux-musl")) -Message "unselected aarch64 target should be absent from the components file"
 
@@ -149,7 +149,7 @@ try {
     $layout = [ordered]@{
         productName = "Rust Portable Cross"
         productVersion = "9.9.9"
-        hostToolchain = "stable-x86_64-pc-windows-msvc"
+        hostToolchain = "1.98.0-x86_64-pc-windows-msvc"
         hostTriple = "x86_64-pc-windows-msvc"
         hostRustComponents = @(
             "cargo-x86_64-pc-windows-msvc",
@@ -169,7 +169,7 @@ try {
     }
 
     $layout | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $compatRoot "install-layout.json") -Encoding ASCII
-    New-Item -ItemType Directory -Path (Join-Path $compatRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $compatRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib") -Force | Out-Null
 
     $powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
     $compatOutput = & $powershellExe -NoProfile -ExecutionPolicy Bypass -Command "& { Remove-Item Env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ErrorAction SilentlyContinue; & '$PSScriptRoot\..\scripts\finalize_offline_install.ps1' -InstallRoot '$compatRoot' -SelectedComponents 'armv7' -InstallScope 'perUser' }" 2>&1
@@ -185,7 +185,7 @@ finally {
 
 $payloadRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("finalize-payload-tests-" + [guid]::NewGuid().ToString("N"))
 try {
-    $toolchainRoot = Join-Path $payloadRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc"
+    $toolchainRoot = Join-Path $payloadRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc"
     $hostTriple = "x86_64-pc-windows-msvc"
     $hostFiles = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
     $hostLibdir = Join-Path $toolchainRoot "lib\rustlib\$hostTriple\lib"

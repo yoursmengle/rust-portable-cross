@@ -16,7 +16,7 @@ if (-not (Test-Path -LiteralPath $script:RustTargetPayloadScriptPath -PathType L
     throw "Missing Rust target payload helper: $script:RustTargetPayloadScriptPath"
 }
 . $script:RustTargetPayloadScriptPath
-$script:HostToolchain = "stable-x86_64-pc-windows-msvc"
+$script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
 $script:DefaultComponents = @("armv7")
@@ -28,8 +28,8 @@ $script:TargetDefinitions = [ordered]@{
         FilePaths = @(
             "tools/wrappers/arm-linux-musleabihf-gcc.cmd",
             "tools/wrappers/arm-linux-musleabihf-gcc.ps1",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/armv7-unknown-linux-musleabihf",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf"
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/armv7-unknown-linux-musleabihf",
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-armv7-unknown-linux-musleabihf"
         )
     }
     aarch64 = @{
@@ -39,8 +39,8 @@ $script:TargetDefinitions = [ordered]@{
         FilePaths = @(
             "tools/wrappers/aarch64-linux-musl-gcc.cmd",
             "tools/wrappers/aarch64-linux-musl-gcc.ps1",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/aarch64-unknown-linux-musl",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/aarch64-unknown-linux-musl",
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-aarch64-unknown-linux-musl"
         )
     }
     thumbv7em = @{
@@ -51,8 +51,8 @@ $script:TargetDefinitions = [ordered]@{
         # cross-compiler wrapper. Only the precompiled core/alloc rustlib and its
         # manifest are target-specific payloads.
         FilePaths = @(
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/thumbv7em-none-eabihf",
-            "tools/rustup-home/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-thumbv7em-none-eabihf"
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/thumbv7em-none-eabihf",
+            "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc/lib/rustlib/manifest-rust-std-thumbv7em-none-eabihf"
         )
     }
 }

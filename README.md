@@ -33,7 +33,7 @@ Run once from the repository root to download and install all toolchain componen
 ```
 
 This will:
-- Download `rustup-init.exe` and install the `stable-x86_64-pc-windows-msvc` toolchain into `tools/`
+- Download `rustup-init.exe` and install the pinned `1.98.0-x86_64-pc-windows-msvc` toolchain into `tools/`
 - Add the `armv7-unknown-linux-musleabihf`, `aarch64-unknown-linux-musl`, and `thumbv7em-none-eabihf` targets
 - Download and extract Zig 0.13.0 into `tools/zig/`
 - Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`

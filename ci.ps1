@@ -20,7 +20,7 @@ $RequiredToolchainPaths = @(
     "tools\cargo-home\bin\cargo.exe",
     "tools\cargo-home\bin\rustc.exe",
     "tools\zig\zig.exe",
-    "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc"
+    "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc"
 )
 
 function Write-Step {

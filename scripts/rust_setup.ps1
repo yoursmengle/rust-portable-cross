@@ -85,6 +85,59 @@ function Get-NativeOutput {
     return @($output)
 }
 
+function Get-RustupDistServerCandidates {
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($server in @(
+        $env:RUSTUP_DIST_SERVER,
+        "https://rsproxy.cn",
+        "https://mirror.sjtu.edu.cn/rust-static",
+        "https://static.rust-lang.org"
+    )) {
+        if ([string]::IsNullOrWhiteSpace($server)) {
+            continue
+        }
+
+        $normalized = $server.Trim().TrimEnd('/')
+        if (-not $candidates.Contains($normalized)) {
+            $candidates.Add($normalized)
+        }
+    }
+
+    return @($candidates)
+}
+
+function Install-PinnedRustToolchain {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RustupPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Toolchain
+    )
+
+    $failures = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($server in (Get-RustupDistServerCandidates)) {
+        $env:RUSTUP_DIST_SERVER = $server
+        try {
+            Invoke-Native -FilePath $RustupPath -Arguments @(
+                "toolchain",
+                "install",
+                $Toolchain,
+                "--profile",
+                "minimal",
+                "--no-self-update"
+            )
+            return
+        }
+        catch {
+            $failures.Add("${server}: $($_.Exception.Message)")
+            Write-Warning "Rust $Toolchain is unavailable from $server. Trying the next distribution server."
+        }
+    }
+
+    throw "Unable to install pinned Rust toolchain $Toolchain from any configured distribution server:`n$($failures -join [Environment]::NewLine)"
+}
+
 function Add-PathEntry {
     param(
         [Parameter(Mandatory = $true)]
@@ -406,8 +459,15 @@ function Invoke-RustToolkitSetup {
     )) {
         Remove-ManagedPath -Path (Join-Path $wrappersRoot $legacyWrapperFile)
     }
-    Remove-ManagedPath -Path (Join-Path $rustupHome "toolchains\stable-$legacyHostTriple")
-    Remove-ManagedPath -Path (Join-Path $rustupHome "update-hashes\stable-$legacyHostTriple")
+    # Remove toolchains from the previous floating-channel layout before installing the
+    # pinned toolchain. This prevents a stale 1.95 payload from being picked up or shipped.
+    foreach ($obsoleteToolchain in @(
+        "stable-x86_64-pc-windows-msvc",
+        "stable-$legacyHostTriple"
+    )) {
+        Remove-ManagedPath -Path (Join-Path $rustupHome "toolchains\$obsoleteToolchain")
+        Remove-ManagedPath -Path (Join-Path $rustupHome "update-hashes\$obsoleteToolchain")
+    }
 
     $env:RUST_PORTABLE_CROSS_ROOT = $toolkitRoot
     $env:CARGO_HOME = $cargoHome
@@ -458,12 +518,12 @@ function Invoke-RustToolkitSetup {
         -Label "rustup-init.exe"
 
     if (-not (Test-Path -LiteralPath $rustupCmd)) {
-        Write-Step "Installing stable-x86_64-pc-windows-msvc into repository-local homes"
+        Write-Step "Installing 1.98.0-x86_64-pc-windows-msvc into repository-local homes"
         Invoke-Native -FilePath $rustupExe -Arguments @(
             "-y",
             "--profile", "minimal",
             "--no-modify-path",
-            "--default-toolchain", "stable-x86_64-pc-windows-msvc"
+            "--default-toolchain", "1.98.0-x86_64-pc-windows-msvc"
         )
     }
     else {
@@ -474,15 +534,17 @@ function Invoke-RustToolkitSetup {
         throw "rustup.exe was not installed into $cargoBin"
     }
 
-    Write-Step "Ensuring stable-x86_64-pc-windows-msvc is installed"
-    Invoke-Native -FilePath $rustupCmd -Arguments @(
-        "toolchain",
-        "install",
-        "stable-x86_64-pc-windows-msvc"
-    )
+    Write-Step "Ensuring 1.98.0-x86_64-pc-windows-msvc is installed"
+    Install-PinnedRustToolchain `
+        -RustupPath $rustupCmd `
+        -Toolchain "1.98.0-x86_64-pc-windows-msvc"
 
     # Pin the active toolchain for all subsequent rustup-proxy calls in this script.
-    $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
+    $env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
+    Invoke-Native -FilePath $rustupCmd -Arguments @(
+        "default",
+        "1.98.0-x86_64-pc-windows-msvc"
+    )
 
     Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
 
@@ -509,7 +571,7 @@ function Invoke-RustToolkitSetup {
                 # Remove first so a stale rustup record cannot short-circuit the repair.
                 try {
                     $global:LASTEXITCODE = 0
-                    & $rustupCmd component remove --toolchain stable-x86_64-pc-windows-msvc $payloadDefinition.RustComponent 2>&1 | Out-Host
+                    & $rustupCmd component remove --toolchain 1.98.0-x86_64-pc-windows-msvc $payloadDefinition.RustComponent 2>&1 | Out-Host
                 }
                 catch {
                     Write-Verbose "Unable to remove stale $($payloadDefinition.RustComponent) metadata before repair: $($_.Exception.Message)"
@@ -518,14 +580,14 @@ function Invoke-RustToolkitSetup {
                     "component",
                     "add",
                     "--toolchain",
-                    "stable-x86_64-pc-windows-msvc",
+                    "1.98.0-x86_64-pc-windows-msvc",
                     $payloadDefinition.RustComponent
                 )
             }
             else {
                 try {
                     $global:LASTEXITCODE = 0
-                    & $rustupCmd target remove --toolchain stable-x86_64-pc-windows-msvc $payloadDefinition.Triple 2>&1 | Out-Host
+                    & $rustupCmd target remove --toolchain 1.98.0-x86_64-pc-windows-msvc $payloadDefinition.Triple 2>&1 | Out-Host
                 }
                 catch {
                     Write-Verbose "Unable to remove stale $($payloadDefinition.Triple) metadata before repair: $($_.Exception.Message)"
@@ -534,7 +596,7 @@ function Invoke-RustToolkitSetup {
                     "target",
                     "add",
                     "--toolchain",
-                    "stable-x86_64-pc-windows-msvc",
+                    "1.98.0-x86_64-pc-windows-msvc",
                     $payloadDefinition.Triple
                 )
             }
@@ -815,6 +877,10 @@ function Invoke-RustToolkitSetup {
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()
     $rustcVersion = (@(Get-NativeOutput -FilePath $rustcExe -Arguments @("-V")))[0].ToString().Trim()
+
+    if ($rustcVersion -notmatch "^rustc 1\.98\.0(?:\s|$)") {
+        throw "Expected pinned Rust 1.98.0, but managed rustc reported: $rustcVersion"
+    }
 
     # `rustup target list --installed` only shows additional (cross) targets; the host triple is
     # always available but never appears in that list.  Check cross targets separately.
