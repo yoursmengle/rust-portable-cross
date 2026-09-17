@@ -13,6 +13,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$rustTargetPayloadScript = Join-Path $PSScriptRoot "rust_target_payload.ps1"
+if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
+    throw "Missing Rust target payload helper: $rustTargetPayloadScript"
+}
+. $rustTargetPayloadScript
+
 $script:HostToolchain = "stable-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 
@@ -411,6 +417,26 @@ function Test-OfflineInstall {
     # an offline auto-install attempt is exactly what used to hang the installer.
     $env:RUSTUP_AUTO_INSTALL = "0"
     $env:CARGO_NET_OFFLINE = "true"
+
+    $payloadTriples = New-Object 'System.Collections.Generic.List[string]'
+    $payloadTriples.Add("x86_64-pc-windows-msvc")
+    foreach ($componentName in $SelectedComponents) {
+        if ($componentName -eq "core") {
+            continue
+        }
+
+        $targetMetadata = $Layout.targets.$componentName
+        if ($null -ne $targetMetadata) {
+            $payloadTriples.Add([string]$targetMetadata.triple)
+        }
+    }
+
+    foreach ($targetTriple in $payloadTriples) {
+        $payloadStatus = Get-RustTargetPayloadStatus -RustcPath $rustcExe -TargetTriple $targetTriple
+        if (-not $payloadStatus.IsComplete) {
+            throw (Format-RustTargetPayloadFailure -Status $payloadStatus)
+        }
+    }
 
     $cargoVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeWithTimeout -FilePath $cargoExe -Arguments @("-V") -TimeoutSeconds 60)).Trim()
     $rustcVersion = [string]::Join([Environment]::NewLine, (Invoke-NativeWithTimeout -FilePath $rustcExe -Arguments @("-V") -TimeoutSeconds 60)).Trim()

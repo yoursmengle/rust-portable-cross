@@ -43,7 +43,7 @@ function New-TestFile {
         [Parameter(Mandatory = $true)]
         [string]$Path,
 
-        [string]$Content = "ok"
+        [object]$Content = "ok"
     )
 
     $parent = Split-Path -Parent $Path
@@ -182,5 +182,41 @@ try {
 finally {
     Remove-Item -LiteralPath $compatRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+$payloadRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("finalize-payload-tests-" + [guid]::NewGuid().ToString("N"))
+try {
+    $toolchainRoot = Join-Path $payloadRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc"
+    $hostTriple = "x86_64-pc-windows-msvc"
+    $hostFiles = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
+    $hostLibdir = Join-Path $toolchainRoot "lib\rustlib\$hostTriple\lib"
+    foreach ($fileName in $hostFiles) {
+        New-TestFile -Path (Join-Path $hostLibdir $fileName)
+    }
+    New-TestFile -Path (Join-Path $toolchainRoot "lib\rustlib\manifest-rust-std-$hostTriple") -Content @($hostFiles | ForEach-Object { "file:lib/rustlib/$hostTriple/lib/$_" })
+
+    $hostStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition $hostStatus.IsComplete -Message "installed validation should accept a complete hosted payload"
+
+    Remove-Item -LiteralPath (Join-Path $hostLibdir "libstd-test.rlib") -Force
+    $metadataOnlyStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition (-not $metadataOnlyStatus.IsComplete) -Message "installed validation should reject a hosted payload without libstd"
+    Assert-True -Condition ((Format-RustTargetPayloadFailure -Status $metadataOnlyStatus) -match "x86_64-pc-windows-msvc") -Message "metadata-only diagnostics should name the affected target"
+
+    $thumbTriple = "thumbv7em-none-eabihf"
+    $thumbFiles = @("libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
+    $thumbLibdir = Join-Path $toolchainRoot "lib\rustlib\$thumbTriple\lib"
+    foreach ($fileName in $thumbFiles) {
+        New-TestFile -Path (Join-Path $thumbLibdir $fileName)
+    }
+    New-TestFile -Path (Join-Path $toolchainRoot "lib\rustlib\manifest-rust-std-$thumbTriple") -Content @($thumbFiles | ForEach-Object { "file:lib/rustlib/$thumbTriple/lib/$_" })
+    $thumbStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $thumbTriple
+    Assert-True -Condition $thumbStatus.IsComplete -Message "installed validation should accept thumb no_std without libstd"
+}
+finally {
+    Remove-Item -LiteralPath $payloadRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$finalizeScriptBody = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\scripts\finalize_offline_install.ps1") -Raw -Encoding UTF8
+Assert-True -Condition ($finalizeScriptBody -match "Get-RustTargetPayloadStatus") -Message "finalize validation should run the shared Rust target payload check"
 
 Write-Host "finalize_offline_install tests passed."

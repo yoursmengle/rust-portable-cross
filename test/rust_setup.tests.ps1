@@ -106,6 +106,67 @@ finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$payloadTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rust-payload-tests-" + [guid]::NewGuid().ToString("N"))
+
+function New-PayloadTestFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [object]$Content = "payload"
+    )
+
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    Set-Content -LiteralPath $Path -Value $Content -Encoding ASCII
+}
+
+try {
+    $hostTriple = "x86_64-pc-windows-msvc"
+    $toolchainRoot = Join-Path $payloadTempRoot "toolchains\stable-x86_64-pc-windows-msvc"
+    $hostLibdir = Join-Path $toolchainRoot "lib\rustlib\$hostTriple\lib"
+    $hostFiles = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
+    foreach ($fileName in $hostFiles) {
+        New-PayloadTestFile -Path (Join-Path $hostLibdir $fileName)
+    }
+    $hostManifest = Join-Path $toolchainRoot "lib\rustlib\manifest-rust-std-$hostTriple"
+    New-PayloadTestFile -Path $hostManifest -Content @($hostFiles | ForEach-Object { "file:lib/rustlib/$hostTriple/lib/$_" })
+
+    $complete = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition $complete.IsComplete -Message "a complete hosted fixture payload should pass"
+
+    Remove-Item -LiteralPath (Join-Path $hostLibdir "libstd-test.rlib") -Force
+    $missingStd = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition (-not $missingStd.IsComplete) -Message "a hosted payload without libstd should fail"
+    Assert-True -Condition (($missingStd.Missing -join "|") -match "libstd-test\.rlib|libstd-\*\.rlib") -Message "missing libstd should be named"
+    New-PayloadTestFile -Path (Join-Path $hostLibdir "libstd-test.rlib")
+
+    Remove-Item -LiteralPath (Join-Path $hostLibdir "libcore-test.rlib") -Force
+    $missingSupport = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition (-not $missingSupport.IsComplete) -Message "a hosted payload without libcore should fail"
+    Assert-True -Condition (($missingSupport.Missing -join "|") -match "libcore-test\.rlib|libcore-\*\.rlib") -Message "missing support library should be named"
+    New-PayloadTestFile -Path (Join-Path $hostLibdir "libcore-test.rlib")
+    [System.IO.File]::WriteAllText((Join-Path $hostLibdir "libstd-test.rlib"), "")
+    $emptyStd = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $hostTriple
+    Assert-True -Condition (-not $emptyStd.IsComplete) -Message "an empty hosted libstd file should fail"
+    Assert-True -Condition (($emptyStd.Empty -join "|") -match "libstd-test\.rlib|libstd-\*\.rlib") -Message "empty libstd should be named"
+    New-PayloadTestFile -Path (Join-Path $hostLibdir "libstd-test.rlib")
+
+    $thumbTriple = "thumbv7em-none-eabihf"
+    $thumbLibdir = Join-Path $toolchainRoot "lib\rustlib\$thumbTriple\lib"
+    $thumbFiles = @("libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")
+    foreach ($fileName in $thumbFiles) {
+        New-PayloadTestFile -Path (Join-Path $thumbLibdir $fileName)
+    }
+    $thumbManifest = Join-Path $toolchainRoot "lib\rustlib\manifest-rust-std-$thumbTriple"
+    New-PayloadTestFile -Path $thumbManifest -Content @($thumbFiles | ForEach-Object { "file:lib/rustlib/$thumbTriple/lib/$_" })
+    $thumbStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $thumbTriple
+    Assert-True -Condition $thumbStatus.IsComplete -Message "thumb no_std payload should pass without libstd"
+}
+finally {
+    Remove-Item -LiteralPath $payloadTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $setupScriptBody = Get-Content -LiteralPath (Join-Path $PSScriptRoot "..\scripts\rust_setup.ps1") -Raw -Encoding UTF8
 Assert-True -Condition ($setupScriptBody -match 'zig-lib\.ps1') -Message "setup should generate the MSVC-compatible zig-lib wrapper."
 Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("zig-" + "dll" + "tool"))) -Message "setup should not generate the legacy Windows import-library wrapper."
@@ -115,6 +176,8 @@ Assert-True -Condition ($setupScriptBody -match [regex]::Escape("'--fix-cortex-a
 Assert-True -Condition ($setupScriptBody -match 'Convert-ResponseFile') -Message "setup should filter linker args inside rustc @response files, not just argv."
 Assert-True -Condition ($setupScriptBody -match 'New-WrapperCmdBody') -Message "setup should build every .cmd shim from a single definition."
 Assert-True -Condition ($setupScriptBody -match [regex]::Escape('for %%I in (pwsh.exe) do set')) -Message "generated .cmd shims should prefer PowerShell 7 when it is available."
+Assert-True -Condition ($setupScriptBody -match 'component\s+remove') -Message "setup should remove stale host rust-std metadata before repairing it."
+Assert-True -Condition ($setupScriptBody -match 'target\s+remove') -Message "setup should remove stale target metadata before repairing it."
 
 # rustc spills the link command line into an @response file, so a wrapper that only
 # filters argv silently does nothing. Exercise the shipped wrapper end to end.

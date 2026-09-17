@@ -2,6 +2,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+$rustTargetPayloadScript = Join-Path $PSScriptRoot "rust_target_payload.ps1"
+if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
+    throw "Missing Rust target payload helper: $rustTargetPayloadScript`nRun .\scripts\rust_setup.ps1 first."
+}
+. $rustTargetPayloadScript
 $toolsRoot = Join-Path $root "tools"
 $rustupBinRoot = Join-Path $toolsRoot "rustup"
 $cargoHome = Join-Path $toolsRoot "cargo-home"
@@ -19,7 +24,8 @@ $requiredPaths = @(
     $cargoExe,
     $rustcExe,
     $rustupExe,
-    $zigExe
+    $zigExe,
+    $rustTargetPayloadScript
 )
 
 foreach ($path in $requiredPaths) {
@@ -53,10 +59,22 @@ New-Item -ItemType Directory -Path $zigGlobalCache -Force | Out-Null
 $env:RUST_PORTABLE_CROSS_ROOT = $root
 $env:CARGO_HOME = $cargoHome
 $env:RUSTUP_HOME = $rustupHome
+$env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
-$env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
 $env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$rustMsvcBin;$env:PATH"
+
+foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+    try {
+        $payloadStatus = Get-RustTargetPayloadStatus -RustcPath $rustcExe -TargetTriple $payloadDefinition.Triple
+        if (-not $payloadStatus.IsComplete) {
+            Write-Warning (Format-RustTargetPayloadFailure -Status $payloadStatus)
+        }
+    }
+    catch {
+        Write-Warning "Unable to validate Rust target payload $($payloadDefinition.Triple): $($_.Exception.Message)"
+    }
+}
 
 $optionalWrapperMappings = @(
     @{

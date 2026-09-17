@@ -8,6 +8,11 @@ $ErrorActionPreference = "Stop"
 $script:RustToolkitScriptPath = $PSCommandPath
 $script:RustToolkitScriptRoot = $PSScriptRoot
 $script:RustToolkitRoot = if ($script:RustToolkitScriptRoot) { Split-Path -Parent $script:RustToolkitScriptRoot } else { $null }
+$rustTargetPayloadScript = Join-Path $script:RustToolkitScriptRoot "rust_target_payload.ps1"
+if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
+    throw "Missing Rust target payload helper: $rustTargetPayloadScript"
+}
+. $rustTargetPayloadScript
 
 # Download override knobs:
 # - RUST_PORTABLE_CROSS_RUSTUP_INIT_URL / RUST_PORTABLE_CROSS_ZIG_URL: highest-priority direct download URL
@@ -490,6 +495,59 @@ function Invoke-RustToolkitSetup {
         "thumbv7em-none-eabihf"
     )
 
+    Write-Step "Verifying Rust standard-library target payloads"
+    $rustcVerbose = @(Get-NativeOutput -FilePath $rustcExe -Arguments @("-vV"))
+    Write-Host "Managed rustc details:"
+    foreach ($rustcDetail in $rustcVerbose) {
+        Write-Host "  $rustcDetail"
+    }
+    foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+        $payloadStatus = Get-RustTargetPayloadStatus -RustcPath $rustcExe -TargetTriple $payloadDefinition.Triple
+        if (-not $payloadStatus.IsComplete) {
+            Write-Step "Repairing incomplete $($payloadDefinition.Triple) payload"
+            if ($payloadDefinition.Triple -eq "x86_64-pc-windows-msvc") {
+                # Remove first so a stale rustup record cannot short-circuit the repair.
+                try {
+                    $global:LASTEXITCODE = 0
+                    & $rustupCmd component remove --toolchain stable-x86_64-pc-windows-msvc $payloadDefinition.RustComponent 2>&1 | Out-Host
+                }
+                catch {
+                    Write-Verbose "Unable to remove stale $($payloadDefinition.RustComponent) metadata before repair: $($_.Exception.Message)"
+                }
+                Invoke-Native -FilePath $rustupCmd -Arguments @(
+                    "component",
+                    "add",
+                    "--toolchain",
+                    "stable-x86_64-pc-windows-msvc",
+                    $payloadDefinition.RustComponent
+                )
+            }
+            else {
+                try {
+                    $global:LASTEXITCODE = 0
+                    & $rustupCmd target remove --toolchain stable-x86_64-pc-windows-msvc $payloadDefinition.Triple 2>&1 | Out-Host
+                }
+                catch {
+                    Write-Verbose "Unable to remove stale $($payloadDefinition.Triple) metadata before repair: $($_.Exception.Message)"
+                }
+                Invoke-Native -FilePath $rustupCmd -Arguments @(
+                    "target",
+                    "add",
+                    "--toolchain",
+                    "stable-x86_64-pc-windows-msvc",
+                    $payloadDefinition.Triple
+                )
+            }
+
+            $payloadStatus = Get-RustTargetPayloadStatus -RustcPath $rustcExe -TargetTriple $payloadDefinition.Triple
+            if (-not $payloadStatus.IsComplete) {
+                throw (Format-RustTargetPayloadFailure -Status $payloadStatus)
+            }
+        }
+
+        Write-Host ("  - {0}: {1}" -f $payloadDefinition.Triple, $payloadStatus.Libdir)
+    }
+
     $installZig = $true
     if (Test-Path -LiteralPath $zigExe) {
         try {
@@ -791,6 +849,10 @@ function Invoke-RustToolkitSetup {
     Write-Host "Wrappers     : $wrappersRoot"
     Write-Host "cargo        : $cargoVersion"
     Write-Host "rustc        : $rustcVersion"
+    Write-Host "rustc details:"
+    foreach ($rustcDetail in $rustcVerbose) {
+        Write-Host "  $rustcDetail"
+    }
     Write-Host "installed targets:"
     foreach ($installedTarget in $installedTargets) {
         Write-Host "  - $installedTarget"

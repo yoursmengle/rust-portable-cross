@@ -43,7 +43,7 @@ function New-TestFile {
         [Parameter(Mandatory = $true)]
         [string]$Path,
 
-        [string]$Content = "ok"
+        [object]$Content = "ok"
     )
 
     $parent = Split-Path -Parent $Path
@@ -78,6 +78,7 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\lib.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_target_payload.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win_native.ps1")
@@ -144,15 +145,30 @@ exit 0
     New-TestFile -Path (Join-Path $toolkitRoot "tools\wrappers\$legacyHostWrapperBase.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\update-hashes\stable-x86_64-pc-windows-msvc")
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-x86_64-pc-windows-msvc")
+    $hostRustlib = Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib"
+    foreach ($fileName in @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib")) {
+        New-TestFile -Path (Join-Path $hostRustlib $fileName)
+    }
+    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-x86_64-pc-windows-msvc") -Content @(
+        "file:lib/rustlib/x86_64-pc-windows-msvc/lib/libstd-test.rlib",
+        "file:lib/rustlib/x86_64-pc-windows-msvc/lib/libstd-test.rmeta",
+        "file:lib/rustlib/x86_64-pc-windows-msvc/lib/libcore-test.rlib",
+        "file:lib/rustlib/x86_64-pc-windows-msvc/lib/liballoc-test.rlib",
+        "file:lib/rustlib/x86_64-pc-windows-msvc/lib/libcompiler_builtins-test.rlib"
+    )
     New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-armv7-unknown-linux-musleabihf")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\aarch64-unknown-linux-musl\lib\std.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-aarch64-unknown-linux-musl")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf\lib\libcore.rlib")
-    New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-thumbv7em-none-eabihf")
+    foreach ($targetFixture in @(
+        @{ Triple = "armv7-unknown-linux-musleabihf"; Files = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib") },
+        @{ Triple = "aarch64-unknown-linux-musl"; Files = @("libstd-test.rlib", "libstd-test.rmeta", "libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib") },
+        @{ Triple = "thumbv7em-none-eabihf"; Files = @("libcore-test.rlib", "liballoc-test.rlib", "libcompiler_builtins-test.rlib") }
+    )) {
+        $targetRustlib = Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\$($targetFixture.Triple)\lib"
+        foreach ($fileName in $targetFixture.Files) {
+            New-TestFile -Path (Join-Path $targetRustlib $fileName)
+        }
+        $manifestLines = @($targetFixture.Files | ForEach-Object { "file:lib/rustlib/$($targetFixture.Triple)/lib/$_" })
+        New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-$($targetFixture.Triple)") -Content $manifestLines
+    }
 
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 
@@ -187,7 +203,7 @@ exit 0
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\zig-lib.cmd")) -Message "core payload should contain the MSVC-compatible zig-lib wrapper"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\$legacyImportToolBase.cmd"))) -Message "core payload should not contain legacy Windows import-library wrappers"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\wrappers\$legacyHostWrapperBase.cmd"))) -Message "core payload should not contain non-MSVC Windows host wrappers"
-    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\std.rlib")) -Message "core payload should contain the host rustlib"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\libstd-test.rlib")) -Message "core payload should contain the host rustlib"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\armv7-unknown-linux-musleabihf"))) -Message "core payload should exclude the armv7 rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf"))) -Message "core payload should exclude the thumbv7em rustlib directory"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot "tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\components"))) -Message "core payload should exclude the generated rustup components file"
@@ -201,7 +217,7 @@ exit 0
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.cmd")) -Message "aarch64 payload should contain its wrapper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "aarch64\tools\wrappers\aarch64-linux-musl-gcc.ps1")) -Message "aarch64 payload should contain its PowerShell wrapper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\scripts\rust_build_thumbv7em.ps1")) -Message "thumbv7em payload should contain its build script"
-    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf\lib\libcore.rlib")) -Message "thumbv7em payload should contain its rustlib"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\rustup-home\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\thumbv7em-none-eabihf\lib\libcore-test.rlib")) -Message "thumbv7em payload should contain its rustlib"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\wrappers"))) -Message "thumbv7em payload should not ship a Zig cross-compiler wrapper"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win"))) -Message "staging should not create an x64_win payload"
 
@@ -226,6 +242,17 @@ exit 0
     Assert-Equal -Actual $layout.targets.thumbv7em.triple -Expected "thumbv7em-none-eabihf" -Message "layout should record the thumbv7em triple"
     Assert-Equal -Actual $layout.targets.thumbv7em.rustComponent -Expected "rust-std-thumbv7em-none-eabihf" -Message "layout should record the thumbv7em rust component"
     Assert-True -Condition (-not ($layout.componentFiles.PSObject.Properties.Name -contains "x64_win")) -Message "layout should not record a removed x64_win component"
+    Assert-True -Condition ($layout.componentFiles.core -contains "scripts/rust_target_payload.ps1") -Message "layout should record the shared Rust target payload helper"
+
+    Remove-Item -LiteralPath (Join-Path $hostRustlib "libstd-test.rlib") -Force
+    $repairOutput = $null
+    try {
+        Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.4" | Out-Null
+    }
+    catch {
+        $repairOutput = $_.Exception.Message
+    }
+    Assert-True -Condition ($repairOutput -match "x86_64-pc-windows-msvc|rustup component add") -Message "release staging should name an incomplete hosted payload when repair cannot run"
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

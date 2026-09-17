@@ -11,6 +11,11 @@ $ErrorActionPreference = "Stop"
 $script:OfflineReleaseScriptPath = $PSCommandPath
 $script:OfflineReleaseScriptRoot = $PSScriptRoot
 $script:OfflineReleaseToolkitRoot = if ($script:OfflineReleaseScriptRoot) { Split-Path -Parent $script:OfflineReleaseScriptRoot } else { $null }
+$script:RustTargetPayloadScriptPath = Join-Path $script:OfflineReleaseScriptRoot "rust_target_payload.ps1"
+if (-not (Test-Path -LiteralPath $script:RustTargetPayloadScriptPath -PathType Leaf)) {
+    throw "Missing Rust target payload helper: $script:RustTargetPayloadScriptPath"
+}
+. $script:RustTargetPayloadScriptPath
 $script:HostToolchain = "stable-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
@@ -389,28 +394,35 @@ function Ensure-TargetRustStdPayloads {
         [hashtable]$Paths
     )
 
-    $toolchainRustlibRoot = Join-Path $Paths.ToolkitRoot "tools\rustup-home\toolchains\$script:HostToolchain\lib\rustlib"
-    $missingTriples = New-Object 'System.Collections.Generic.List[string]'
+    $toolchainRoot = Join-Path $Paths.ToolkitRoot "tools\rustup-home\toolchains\$script:HostToolchain"
+    $rustupCmd = Join-Path $Paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"
+    if (-not (Test-Path -LiteralPath $toolchainRoot -PathType Container)) {
+        throw "Managed toolchain is missing for target payload validation: $toolchainRoot"
+    }
 
-    foreach ($targetName in $script:TargetDefinitions.Keys) {
-        $targetTriple = $script:TargetDefinitions[$targetName].Triple
-        $tripleRoot = Join-Path $toolchainRustlibRoot $targetTriple
-        $manifestPath = Join-Path $toolchainRustlibRoot ("manifest-rust-std-{0}" -f $targetTriple)
-        if ((-not (Test-Path -LiteralPath $tripleRoot)) -or (-not (Test-Path -LiteralPath $manifestPath))) {
-            $missingTriples.Add($targetTriple)
+    $incomplete = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+        $payloadStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $payloadDefinition.Triple
+        if (-not $payloadStatus.IsComplete) {
+            $incomplete.Add($payloadStatus)
         }
     }
 
-    if ($missingTriples.Count -eq 0) {
+    if ($incomplete.Count -eq 0) {
         return
     }
 
-    $rustupCmd = Join-Path $Paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"
     if (-not (Test-Path -LiteralPath $rustupCmd -PathType Leaf)) {
         throw "Missing rustup executable required for auto-heal: $rustupCmd"
     }
 
-    Write-Step "Missing rust-std payloads detected for $($missingTriples -join ', '); attempting rustup target add"
+    $missingTriples = @(
+        $incomplete |
+            Where-Object { $_.TargetTriple -ne $script:HostTriple } |
+            ForEach-Object { $_.TargetTriple }
+    )
+    $hostIncomplete = @($incomplete | Where-Object { $_.TargetTriple -eq $script:HostTriple }).Count -gt 0
+    Write-Step "Incomplete Rust target payloads detected for $(($incomplete | ForEach-Object { $_.TargetTriple }) -join ', '); attempting managed repair"
 
     $snapshot = @{}
     try {
@@ -425,20 +437,53 @@ function Ensure-TargetRustStdPayloads {
             Set-ScopedEnvironmentVariable -Name "RUSTUP_UPDATE_ROOT" -Value "https://rsproxy.cn/rustup" -Snapshot $snapshot
         }
 
-        & $rustupCmd target add @($missingTriples)
-        if ($LASTEXITCODE -ne 0) {
-            throw "rustup target add failed with exit code $LASTEXITCODE"
+        if ($hostIncomplete) {
+            # Remove first so a stale rustup record cannot short-circuit the repair.
+            try {
+                $global:LASTEXITCODE = 0
+                & $rustupCmd component remove --toolchain $script:HostToolchain "rust-std-$script:HostTriple" 2>&1 | Out-Host
+            }
+            catch {
+                Write-Verbose "Unable to remove stale rust-std metadata before repair: $($_.Exception.Message)"
+            }
+            try {
+                & $rustupCmd component add --toolchain $script:HostToolchain "rust-std-$script:HostTriple"
+            }
+            catch {
+                throw "rustup component add failed for ${script:HostTriple}: $($_.Exception.Message)"
+            }
+            if ($LASTEXITCODE -ne 0) {
+                throw "rustup component add failed for $script:HostTriple with exit code $LASTEXITCODE"
+            }
+        }
+        if ($missingTriples.Count -gt 0) {
+            # Remove first so stale target records cannot short-circuit the repair.
+            try {
+                $global:LASTEXITCODE = 0
+                & $rustupCmd target remove --toolchain $script:HostToolchain @($missingTriples) 2>&1 | Out-Host
+            }
+            catch {
+                Write-Verbose "Unable to remove stale target metadata before repair: $($_.Exception.Message)"
+            }
+            try {
+                & $rustupCmd target add --toolchain $script:HostToolchain @($missingTriples)
+            }
+            catch {
+                throw "rustup target add failed for $($missingTriples -join ', '): $($_.Exception.Message)"
+            }
+            if ($LASTEXITCODE -ne 0) {
+                throw "rustup target add failed for $($missingTriples -join ', ') with exit code $LASTEXITCODE"
+            }
         }
     }
     finally {
         Restore-ScopedEnvironmentVariables -Snapshot $snapshot
     }
 
-    foreach ($targetTriple in $missingTriples) {
-        $tripleRoot = Join-Path $toolchainRustlibRoot $targetTriple
-        $manifestPath = Join-Path $toolchainRustlibRoot ("manifest-rust-std-{0}" -f $targetTriple)
-        if ((-not (Test-Path -LiteralPath $tripleRoot)) -or (-not (Test-Path -LiteralPath $manifestPath))) {
-            throw "Target payload is still missing after rustup target add: $targetTriple"
+    foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+        $payloadStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $payloadDefinition.Triple
+        if (-not $payloadStatus.IsComplete) {
+            throw (Format-RustTargetPayloadFailure -Status $payloadStatus)
         }
     }
 }
@@ -530,6 +575,7 @@ function Invoke-PrepareOfflineRelease {
 
     foreach ($requiredPath in @(
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\rust_target_payload.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_isolation.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
@@ -575,6 +621,7 @@ function Invoke-PrepareOfflineRelease {
     foreach ($relativePath in @(
         "config",
         "scripts/rust_env.ps1",
+        "scripts/rust_target_payload.ps1",
         "scripts/rust_build_isolation.ps1",
         "scripts/finalize_offline_install.ps1",
         "scripts/rust_build_x64_win_native.ps1",

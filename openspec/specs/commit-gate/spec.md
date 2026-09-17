@@ -29,6 +29,7 @@ A check that fails SHALL NOT stop the remaining checks from running. A developer
 The verification command SHALL have a default lane that requires no installed cross-compilation toolchain, so it succeeds in a freshly cloned repository where `tools/` has not been populated. The default lane SHALL cover, at minimum:
 
 - that every PowerShell script tracked in the repository parses,
+- that every toolkit path quoted in tracked documentation resolves, and that tracked documentation carries no disallowed control characters,
 - that every test suite under `test/` passes,
 - that OpenSpec artifacts for active changes validate.
 
@@ -43,6 +44,16 @@ Checks in the default lane that genuinely require an absent toolchain SHALL repo
 
 - **WHEN** a tracked PowerShell script contains a syntax error
 - **THEN** the default lane fails and names the file and the parse error
+
+#### Scenario: Documentation names a path that does not exist
+
+- **WHEN** tracked documentation quotes a toolkit path that the repository does not contain
+- **THEN** the default lane fails and names the document, the line, and the unresolved path
+
+#### Scenario: Documentation integrity is checked without a toolchain
+
+- **WHEN** the default lane runs in a clone whose toolchain directories are empty
+- **THEN** the documentation check produces a pass or fail verdict rather than a skip
 
 ### Requirement: Full lane covers the cross-build checks
 
@@ -126,4 +137,3 @@ The verification command and its hook are development-time files. They SHALL NOT
 
 - **WHEN** the offline release payload is assembled
 - **THEN** it contains neither the verification command nor the hook directory
-
