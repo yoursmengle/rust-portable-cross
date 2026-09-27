@@ -47,6 +47,7 @@ Use `-Force` to reset cached registry/package data and re-run setup:
 ### Customer offline installer flow
 
 Customer delivery should use the offline installer generated from the staged release payload, not `rust_setup.ps1`.
+The current installer installs all three cross-compilation targets together.
 
 - installer source: `packaging/inno/rust_portable_cross.iss`
 - staging script: `scripts/prepare_offline_release.ps1`

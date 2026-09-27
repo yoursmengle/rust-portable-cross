@@ -7,12 +7,11 @@ This installer deploys a prebuilt offline Rust toolchain for Windows.
 - The installer itself does not download anything.
 - The bundled Rust host toolchain is pinned to Rust 1.98.0.
 - The sample Rust project is installed under `sample\`.
-- You can choose support for:
+- The installer includes all three cross-compilation targets:
   - `armv7`
   - `aarch64`
   - `thumbv7em` (ARM Cortex-M4F/M7 bare-metal, `thumbv7em-none-eabihf`)
-- `armv7` is selected by default.
-- Only the selected target payloads are installed.
+- All three target payloads are installed together; the current installer does not offer a target selection page.
 
 ## Installation Scope
 
@@ -40,7 +39,7 @@ Run the build scripts from inside your Rust project directory:
 - `.\scripts\rust_build_thumbv7em.ps1`
 - `.\scripts\rust_build_x64_win_native.ps1 -ProjectPath <your-project-path>`
 
-If a target was not selected during installation, its build script or wrapper files may be absent.
+All three target build scripts are installed by the current installer.
 
 ### Notes for `thumbv7em-none-eabihf`
 

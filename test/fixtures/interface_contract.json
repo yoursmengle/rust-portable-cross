@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "entrypoints": {
+    "scripts/rust_setup.ps1": [
+      { "name": "Force", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "scripts/rust_env.ps1": [],
+    "scripts/rust_build_armv7.ps1": [],
+    "scripts/rust_build_aarch64.ps1": [],
+    "scripts/rust_build_thumbv7em.ps1": [],
+    "scripts/rust_build_x64_win_native.ps1": [
+      { "name": "ProjectPath", "type": "string", "default": ".", "validateSet": [] },
+      { "name": "DebugBuild", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "scripts/prepare_offline_release.ps1": [
+      { "name": "ToolkitRoot", "type": "string", "default": null, "validateSet": [] },
+      { "name": "OutputRoot", "type": "string", "default": null, "validateSet": [] },
+      { "name": "Version", "type": "string", "default": "0.1.0", "validateSet": [] }
+    ],
+    "scripts/finalize_offline_install.ps1": [
+      { "name": "InstallRoot", "type": "string", "default": null, "validateSet": [] },
+      { "name": "SelectedComponents", "type": "string", "default": "", "validateSet": [] },
+      { "name": "InstallScope", "type": "string", "default": "perUser", "validateSet": ["perUser", "perMachine"] },
+      { "name": "Validate", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "scripts/build_win_link_inputs.ps1": [
+      { "name": "ToolkitRoot", "type": "string", "default": null, "validateSet": [] },
+      { "name": "Arch", "type": "string", "default": "x86_64", "validateSet": ["x86_64"] },
+      { "name": "Force", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "build.ps1": [
+      { "name": "Version", "type": "string", "default": null, "validateSet": [] },
+      { "name": "IsccPath", "type": "string", "default": null, "validateSet": [] },
+      { "name": "SkipStaging", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "ci.ps1": [
+      { "name": "Full", "type": "switch", "default": null, "validateSet": [] },
+      { "name": "InstallHook", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "check_tool_x64_win.ps1": [
+      { "name": "SkipNegativeTest", "type": "switch", "default": null, "validateSet": [] }
+    ],
+    "check_tool_armv7.ps1": [],
+    "check_tool_aarch64.ps1": [],
+    "check_tool_thumbv7em.ps1": [],
+    "sample_embedded/make_image.ps1": []
+  },
+  "toolchain": "1.98.0-x86_64-pc-windows-msvc",
+  "zigVersion": "0.13.0",
+  "targets": {
+    "host": { "triple": "x86_64-pc-windows-msvc", "requiresStd": true },
+    "armv7": { "triple": "armv7-unknown-linux-musleabihf", "requiresStd": true },
+    "aarch64": { "triple": "aarch64-unknown-linux-musl", "requiresStd": true },
+    "thumbv7em": { "triple": "thumbv7em-none-eabihf", "requiresStd": false }
+  },
+  "installer": {
+    "appId": "8A3B77B4-BF0E-4B30-B6AC-8FA8302B3E10",
+    "selectedComponents": ["armv7", "aarch64", "thumbv7em"],
+    "layoutDefaultComponents": ["armv7"],
+    "defaultDrivePreference": ["D:\\rust-portable-cross", "C:\\rust-portable-cross"],
+    "scopeValues": ["perUser", "perMachine"]
+  },
+  "publishedPaths": [
+    "config/.cargo/config.toml",
+    "tools/cargo-home/bin/cargo.exe",
+    "tools/cargo-home/bin/rustc.exe",
+    "tools/cargo-home/bin/rustup.exe",
+    "tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc",
+    "tools/zig/zig.exe",
+    "tools/sysroot/x86_64-pc-windows-msvc/lib",
+    "tools/sysroot/x86_64-pc-windows-msvc/PROVENANCE.json"
+  ],
+  "wrappers": [
+    "aarch64-linux-musl-gcc.cmd",
+    "arm-linux-musleabihf-gcc.cmd",
+    "zig-ar.cmd",
+    "zig-lib.cmd",
+    "zig-ranlib.cmd"
+  ],
+  "publicEnvironment": [
+    "RUST_PORTABLE_CROSS_ROOT",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+    "ZIG_LOCAL_CACHE_DIR",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "CC_armv7_unknown_linux_musleabihf",
+    "CC_aarch64_unknown_linux_musl",
+    "AR",
+    "RANLIB",
+    "AR_armv7_unknown_linux_musleabihf",
+    "AR_aarch64_unknown_linux_musl",
+    "RANLIB_armv7_unknown_linux_musleabihf",
+    "RANLIB_aarch64_unknown_linux_musl"
+  ],
+  "downloadEnvironment": [
+    "RUST_PORTABLE_CROSS_RUSTUP_INIT_URL",
+    "RUST_PORTABLE_CROSS_ZIG_URL",
+    "RUST_PORTABLE_CROSS_RUSTUP_MIRRORS",
+    "RUST_PORTABLE_CROSS_ZIG_MIRRORS",
+    "RUST_PORTABLE_CROSS_RUSTUP_MIRROR_BASE",
+    "RUST_PORTABLE_CROSS_ZIG_MIRROR_BASE",
+    "RUST_PORTABLE_CROSS_DOWNLOAD_PROXY_PREFIX",
+    "RUST_PORTABLE_CROSS_WGET_PATH",
+    "RUST_PORTABLE_CROSS_DOWNLOAD_RETRIES",
+    "RUST_PORTABLE_CROSS_CURL_IP_MODE",
+    "RUSTUP_DIST_SERVER",
+    "RUSTUP_UPDATE_ROOT"
+  ],
+  "diagnosticAnchors": {
+    "scripts/rust_setup.ps1": ["Portable Rust toolkit setup complete.", "Missing required installed target:"],
+    "scripts/rust_build_armv7.ps1": ["Cargo.toml not found", "cargo build failed for armv7-unknown-linux-musleabihf", "Build output:"],
+    "scripts/rust_build_aarch64.ps1": ["Cargo.toml not found", "cargo build failed for aarch64-unknown-linux-musl", "Build output:"],
+    "scripts/rust_build_thumbv7em.ps1": ["Cargo.toml not found", "cargo build failed for thumbv7em-none-eabihf", "Build output:"],
+    "scripts/rust_build_x64_win_native.ps1": ["Cargo.toml not found", "cargo build failed for x86_64-pc-windows-msvc", "Build output:"]
+  },
+  "jsonFields": {
+    "scripts/prepare_offline_release.ps1": ["productName", "productVersion", "generatedAt", "hostToolchain", "hostTriple", "defaultComponents", "hostRustComponents", "targets", "componentFiles"],
+    "scripts/finalize_offline_install.ps1": ["productName", "productVersion", "generatedAt", "installScope", "hostToolchain", "hostTriple", "installedComponents", "componentFiles"],
+    "scripts/build_win_link_inputs.ps1": ["triple", "generatedBy", "requiredShimSymbols", "zigVersion", "note", "files"],
+    "build.ps1": ["originalFileName", "version", "originalSize", "originalHash", "partCount", "partFileNames", "partFileSizes", "partFileHashes"]
+  },
+  "jsonShapes": {
+    "installLayout": {
+      "productName": "string", "productVersion": "string", "generatedAt": "string",
+      "hostToolchain": "string", "hostTriple": "string", "defaultComponents": "array",
+      "hostRustComponents": "array", "targets": "object", "componentFiles": "object"
+    },
+    "installManifest": {
+      "productName": "string", "productVersion": "string", "generatedAt": "string",
+      "installScope": "string", "hostToolchain": "string", "hostTriple": "string",
+      "installedComponents": "array", "componentFiles": "object"
+    },
+    "sysrootProvenance": {
+      "triple": "string", "generatedBy": "string", "requiredShimSymbols": "array",
+      "zigVersion": "string", "note": "string", "files": "array"
+    },
+    "splitDownloadManifest": {
+      "originalFileName": "string", "version": "string", "originalSize": "number",
+      "originalHash": "string", "partCount": "number", "partFileNames": "array",
+      "partFileSizes": "array", "partFileHashes": "array"
+    }
+  }
+}
