@@ -390,6 +390,112 @@ function Get-RustToolkitPaths {
     }
 }
 
+function Assert-SetupFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Setup did not produce $Description`: $Path"
+    }
+    $file = Get-Item -LiteralPath $Path
+    if ($file.Length -gt 0) {
+        return
+    }
+
+    # rustup may create zero-length Windows symlink entries for cargo/rustc.
+    # The target, rather than the link entry, carries the executable bytes.
+    if ($file.LinkType -eq 'SymbolicLink' -and $file.Target) {
+        $target = @($file.Target)[0]
+        $targetPath = if ([System.IO.Path]::IsPathRooted($target)) {
+            $target
+        }
+        else {
+            Join-Path (Split-Path -Parent $Path) $target
+        }
+        if ((Test-Path -LiteralPath $targetPath -PathType Leaf) -and
+            (Get-Item -LiteralPath $targetPath).Length -gt 0) {
+            return
+        }
+    }
+
+    throw "Setup produced an empty $Description`: $Path"
+}
+
+function Get-SetupWindowsLinkInputStatus {
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+
+    $sysrootRoot = Join-Path $ToolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc'
+    $libraryRoot = Join-Path $sysrootRoot 'lib'
+    $requiredLibraries = @(
+        'kernel32.lib', 'ntdll.lib', 'userenv.lib', 'ws2_32.lib',
+        'dbghelp.lib', 'advapi32.lib', 'user32.lib', 'ole32.lib',
+        'oleaut32.lib', 'shell32.lib', 'bcrypt.lib', 'msvcrt.lib',
+        'rpc_winshim.lib'
+    )
+    $missing = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($name in $requiredLibraries) {
+        $path = Join-Path $libraryRoot $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
+            (Get-Item -LiteralPath $path).Length -le 0) {
+            $missing.Add($name)
+        }
+    }
+
+    $provenancePath = Join-Path $sysrootRoot 'PROVENANCE.json'
+    if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf) -or
+        (Get-Item -LiteralPath $provenancePath).Length -le 0) {
+        $missing.Add('PROVENANCE.json')
+    }
+    else {
+        try {
+            $provenance = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($provenance.triple -ne 'x86_64-pc-windows-msvc' -or
+                $provenance.zigVersion -ne '0.13.0' -or
+                @($provenance.files).Count -ne $requiredLibraries.Count) {
+                $missing.Add('PROVENANCE.json (target, Zig version, or file list)')
+            }
+        }
+        catch {
+            $missing.Add('PROVENANCE.json (invalid JSON)')
+        }
+    }
+
+    return [pscustomobject]@{
+        Root = $sysrootRoot
+        Missing = $missing.ToArray()
+        IsComplete = ($missing.Count -eq 0)
+    }
+}
+
+function Ensure-SetupWindowsLinkInputs {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolkitRoot,
+        [Parameter(Mandatory = $true)][string]$ScriptRoot
+    )
+
+    $status = Get-SetupWindowsLinkInputStatus -ToolkitRoot $ToolkitRoot
+    if ($status.IsComplete) {
+        Write-Step "Using existing Windows link inputs at $($status.Root)"
+        return
+    }
+
+    $generator = Join-Path $ScriptRoot 'build_win_link_inputs.ps1'
+    Assert-SetupFile -Path $generator -Description 'Windows link-input generator'
+    Write-Step "Repairing Windows link inputs under $($status.Root): $($status.Missing -join ', ')"
+    $global:LASTEXITCODE = 0
+    & $generator -ToolkitRoot $ToolkitRoot -Force
+    if ($LASTEXITCODE -ne 0) {
+        throw "Windows link-input generator failed with exit code $LASTEXITCODE`: $generator"
+    }
+
+    $status = Get-SetupWindowsLinkInputStatus -ToolkitRoot $ToolkitRoot
+    if (-not $status.IsComplete) {
+        throw "Windows link inputs remain incomplete under $($status.Root): $($status.Missing -join ', ')"
+    }
+}
+
 function Invoke-RustToolkitSetup {
     param(
         [switch]$Force
@@ -518,12 +624,12 @@ function Invoke-RustToolkitSetup {
         -Label "rustup-init.exe"
 
     if (-not (Test-Path -LiteralPath $rustupCmd)) {
-        Write-Step "Installing 1.98.0-x86_64-pc-windows-msvc into repository-local homes"
+        Write-Step "Installing rustup into repository-local homes"
         Invoke-Native -FilePath $rustupExe -Arguments @(
             "-y",
             "--profile", "minimal",
             "--no-modify-path",
-            "--default-toolchain", "1.98.0-x86_64-pc-windows-msvc"
+            "--default-toolchain", "none"
         )
     }
     else {
@@ -873,6 +979,31 @@ function Invoke-RustToolkitSetup {
     $zigLibCmdPath = Join-Path $wrappersRoot "zig-lib.cmd"
     $zigLibCmdBody = New-WrapperCmdBody -BaseName "zig-lib"
     Set-Content -LiteralPath $zigLibCmdPath -Value $zigLibCmdBody -Encoding ASCII
+
+    $rustMsvcBin = Join-Path $rustupHome 'toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin'
+    foreach ($file in @(
+        $cargoExe, $rustcExe, $rustupCmd, (Join-Path $rustupBinRoot 'rustup.exe'),
+        $zigExe, (Join-Path $rustMsvcBin 'rust-lld.exe'),
+        (Join-Path $rustMsvcBin 'rust-objcopy.exe')
+    )) {
+        Assert-SetupFile -Path $file -Description 'managed tool'
+    }
+    foreach ($baseName in @(
+        'arm-linux-musleabihf-gcc', 'aarch64-linux-musl-gcc',
+        'zig-ar', 'zig-ranlib', 'zig-lib'
+    )) {
+        foreach ($extension in @('.cmd', '.ps1')) {
+            Assert-SetupFile -Path (Join-Path $wrappersRoot ($baseName + $extension)) -Description 'wrapper'
+        }
+    }
+    foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+        $payloadStatus = Get-RustTargetPayloadStatus -RustcPath $rustcExe -TargetTriple $payloadDefinition.Triple
+        if (-not $payloadStatus.IsComplete) {
+            throw (Format-RustTargetPayloadFailure -Status $payloadStatus)
+        }
+    }
+
+    Ensure-SetupWindowsLinkInputs -ToolkitRoot $toolkitRoot -ScriptRoot $scriptRoot
 
     Write-Step "Running self-checks"
     $cargoVersion = (@(Get-NativeOutput -FilePath $cargoExe -Arguments @("-V")))[0].ToString().Trim()

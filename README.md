@@ -37,6 +37,7 @@ This will:
 - Add the `armv7-unknown-linux-musleabihf`, `aarch64-unknown-linux-musl`, and `thumbv7em-none-eabihf` targets
 - Download and extract Zig 0.13.0 into `tools/zig/`
 - Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`
+- Generate the Windows host link inputs in `tools/sysroot/x86_64-pc-windows-msvc/` and verify the managed build tools and target payloads
 
 Use `-Force` to reset cached registry/package data and re-run setup:
 
