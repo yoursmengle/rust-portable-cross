@@ -390,6 +390,26 @@ function Get-RustToolkitPaths {
     }
 }
 
+function Get-DependencyLock {
+    $path = Join-Path $PSScriptRoot 'dependency-lock.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Missing dependency lock: $path"
+    }
+    return Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+}
+
+function Test-LockedDownload {
+    param([string]$Path, [string]$ExpectedSha256, [switch]$Zip)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or
+        $ExpectedSha256 -notmatch '^[a-fA-F0-9]{64}$') { return $false }
+    if ($Zip -and -not (Test-ZipArchive -Path $Path)) { return $false }
+    return [string]::Equals(
+        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash,
+        $ExpectedSha256,
+        [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 function Assert-SetupFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -519,6 +539,12 @@ function Invoke-RustToolkitSetup {
     $rustcExe = Join-Path $cargoBin "rustc.exe"
     $rustupCmd = Join-Path $cargoBin "rustup.exe"
     $zigVersion = "0.13.0"
+    $dependencyLock = Get-DependencyLock
+    if ($dependencyLock.rust.release -ne '1.98.0' -or
+        $dependencyLock.rust.host -ne 'x86_64-pc-windows-msvc' -or
+        $dependencyLock.zigArchive.version -ne $zigVersion) {
+        throw 'Dependency lock does not match this toolkit release.'
+    }
     $zigExe = Join-Path $zigRoot "zig.exe"
     $zigArchive = Join-Path $downloadsRoot "zig-windows-x86_64-$zigVersion.zip"
     $zigExtractRootBase = Join-Path $downloadsRoot "zig-extract-$zigVersion"
@@ -621,9 +647,11 @@ function Invoke-RustToolkitSetup {
     Ensure-Download `
         -Uris $rustupDownloadUris `
         -Destination $rustupExe `
-        -Label "rustup-init.exe"
+        -Label "rustup-init.exe" `
+        -ValidateFile { param($Path) Test-LockedDownload -Path $Path -ExpectedSha256 $dependencyLock.rustupBootstrap.sha256 } `
+        -InvalidCacheMessage "Cached rustup bootstrap does not match the pinned SHA-256"
 
-    if (-not (Test-Path -LiteralPath $rustupCmd)) {
+    if (-not (Test-LockedDownload -Path $rustupCmd -ExpectedSha256 $dependencyLock.rustupBootstrap.sha256)) {
         Write-Step "Installing rustup into repository-local homes"
         Invoke-Native -FilePath $rustupExe -Arguments @(
             "-y",
@@ -638,6 +666,9 @@ function Invoke-RustToolkitSetup {
 
     if (-not (Test-Path -LiteralPath $rustupCmd)) {
         throw "rustup.exe was not installed into $cargoBin"
+    }
+    if (-not (Test-LockedDownload -Path $rustupCmd -ExpectedSha256 $dependencyLock.rustupBootstrap.sha256)) {
+        throw 'Managed rustup.exe does not match the dependency lock.'
     }
 
     Write-Step "Ensuring 1.98.0-x86_64-pc-windows-msvc is installed"
@@ -665,6 +696,11 @@ function Invoke-RustToolkitSetup {
 
     Write-Step "Verifying Rust standard-library target payloads"
     $rustcVerbose = @(Get-NativeOutput -FilePath $rustcExe -Arguments @("-vV"))
+    if ($rustcVerbose -notcontains "commit-hash: $($dependencyLock.rust.commit)" -or
+        $rustcVerbose -notcontains "release: $($dependencyLock.rust.release)" -or
+        $rustcVerbose -notcontains "host: $($dependencyLock.rust.host)") {
+        throw 'Managed Rust compiler does not match the dependency lock.'
+    }
     Write-Host "Managed rustc details:"
     foreach ($rustcDetail in $rustcVerbose) {
         Write-Host "  $rustcDetail"
@@ -720,7 +756,8 @@ function Invoke-RustToolkitSetup {
     if (Test-Path -LiteralPath $zigExe) {
         try {
             $existingZigVersion = (@(Get-NativeOutput -FilePath $zigExe -Arguments @("version")))[0].ToString().Trim()
-            if ($existingZigVersion -eq $zigVersion) {
+            if ($existingZigVersion -eq $zigVersion -and
+                (Test-LockedDownload -Path $zigExe -ExpectedSha256 $dependencyLock.zigArchive.executableSha256)) {
                 $installZig = $false
             }
         }
@@ -747,8 +784,8 @@ function Invoke-RustToolkitSetup {
             -Uris $zigDownloadUris `
             -Destination $zigArchive `
             -Label "Zig $zigVersion" `
-            -ValidateFile { param($Path) Test-ZipArchive -Path $Path } `
-            -InvalidCacheMessage "Cached Zig archive is corrupt"
+            -ValidateFile { param($Path) Test-LockedDownload -Path $Path -ExpectedSha256 $dependencyLock.zigArchive.sha256 -Zip } `
+            -InvalidCacheMessage "Cached Zig archive does not match the pinned SHA-256"
 
         Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigExtractRoot -Force
 
@@ -780,6 +817,9 @@ function Invoke-RustToolkitSetup {
     }
     else {
         Write-Step "Using existing Zig $zigVersion in $zigRoot"
+    }
+    if (-not (Test-LockedDownload -Path $zigExe -ExpectedSha256 $dependencyLock.zigArchive.executableSha256)) {
+        throw 'Managed zig.exe does not match the dependency lock.'
     }
 
     Write-Step "Generating Zig cross-compiler wrappers"

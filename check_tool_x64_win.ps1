@@ -27,6 +27,7 @@ if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
     throw "Missing managed path helper: $pathBoundaryScript"
 }
 . $pathBoundaryScript
+. (Join-Path $repoRoot 'scripts\rust_payload_integrity.ps1')
 $toolsRoot = Join-Path $repoRoot "tools"
 $winSysroot = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc"
 $winSysrootLib = Join-Path $winSysroot "lib"
@@ -173,6 +174,14 @@ if ($missingLibraries.Count -gt 0) {
 }
 else {
     Write-Pass "all $($requiredLibraries.Count) required link inputs present in $winSysrootLib"
+}
+
+try {
+    Assert-WindowsLinkInputProvenance -ToolkitRoot $repoRoot
+    Write-Pass 'all 13 Windows link inputs match provenance SHA-256 values'
+}
+catch {
+    Add-Failure "Windows link input provenance audit failed: $($_.Exception.Message)"
 }
 
 # --- Symbols the shim has to supply -------------------------------------------

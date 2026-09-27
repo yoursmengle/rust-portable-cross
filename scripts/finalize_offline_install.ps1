@@ -18,6 +18,7 @@ if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
     throw "Missing Rust target payload helper: $rustTargetPayloadScript"
 }
 . $rustTargetPayloadScript
+. (Join-Path $PSScriptRoot 'rust_payload_integrity.ps1')
 
 $script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
@@ -546,6 +547,7 @@ function Invoke-FinalizeOfflineInstall {
     $layout = Get-InstallLayout -InstallRoot $resolvedInstallRoot
     $selectedComponentList = Get-SelectedComponentList -SelectedComponents $SelectedComponents
     $validatedRemovalPaths = @(Assert-InstallLayoutPreflight -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList)
+    $null = Test-PayloadIntegrityIndex -InstallRoot $resolvedInstallRoot -Layout $layout
 
     Ensure-LocalCacheDirectories -InstallRoot $resolvedInstallRoot
     Repair-InstalledCargoHostConfig -InstallRoot $resolvedInstallRoot
@@ -558,6 +560,9 @@ function Invoke-FinalizeOfflineInstall {
         # The toolkit files are already deployed and configured at this point.
         # Validation is a best-effort health check: it is bounded by per-command
         # timeouts and, even if it fails, must never abort or hang the installer.
+        # Start the 150-second backstop after the deterministic payload preflight:
+        # on PS5.1 that preflight and full hashing legitimately exceed 150 seconds.
+        $watchdog = Start-FinalizeWatchdog -TimeoutSeconds 150
         try {
             Test-OfflineInstall -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
         }
@@ -575,17 +580,13 @@ function Invoke-FinalizeOfflineInstall {
             }
             Write-Warning $warningText
         }
+        finally {
+            Stop-FinalizeWatchdog -Watchdog $watchdog
+        }
     }
 }
 
 if ($env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ne "1") {
-    # Only the validating installer run can block on toolchain processes; the
-    # config-only path is pure file IO and needs no watchdog.
-    $watchdog = $null
-    if ($Validate) {
-        $watchdog = Start-FinalizeWatchdog -TimeoutSeconds 150
-    }
-
     $exitCode = 0
     try {
         Invoke-FinalizeOfflineInstall -InstallRoot $InstallRoot -SelectedComponents $SelectedComponents -InstallScope $InstallScope -Validate:$Validate
@@ -596,11 +597,5 @@ if ($env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ne "1") {
         Write-Error $_.Exception.Message
         $exitCode = 1
     }
-    finally {
-        # Cancel the backstop on normal completion so it does not linger and
-        # later kill an unrelated, PID-recycled process.
-        Stop-FinalizeWatchdog -Watchdog $watchdog
-    }
-
     exit $exitCode
 }

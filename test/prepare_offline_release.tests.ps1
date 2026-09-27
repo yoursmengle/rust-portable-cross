@@ -80,6 +80,8 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_target_payload.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_path_boundary.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_payload_integrity.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\dependency-lock.json") -Content (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\scripts\dependency-lock.json') -Raw)
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win_native.ps1")
@@ -98,10 +100,17 @@ param([string]$ToolkitRoot, [string]$Arch = "x86_64", [switch]$Force)
 $sysroot = Join-Path $ToolkitRoot "tools\sysroot\x86_64-pc-windows-msvc"
 $libRoot = Join-Path $sysroot "lib"
 New-Item -ItemType Directory -Path $libRoot -Force | Out-Null
-foreach ($name in @("kernel32", "ntdll", "userenv", "ws2_32", "dbghelp", "msvcrt", "rpc_winshim")) {
-    Set-Content -LiteralPath (Join-Path $libRoot "$name.lib") -Value "stub" -Encoding ASCII
+$records = @()
+foreach ($name in @("kernel32", "ntdll", "userenv", "ws2_32", "dbghelp", "advapi32", "user32", "ole32", "oleaut32", "shell32", "bcrypt", "msvcrt", "rpc_winshim")) {
+    $path = Join-Path $libRoot "$name.lib"
+    Set-Content -LiteralPath $path -Value "stub-$name" -Encoding ASCII
+    $records += [ordered]@{
+        file = "tools/sysroot/x86_64-pc-windows-msvc/lib/$name.lib"
+        sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
 }
-Set-Content -LiteralPath (Join-Path $sysroot "PROVENANCE.json") -Value "{}" -Encoding ASCII
+[ordered]@{ triple = 'x86_64-pc-windows-msvc'; zigVersion = '0.13.0'; files = $records } |
+    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $sysroot "PROVENANCE.json") -Encoding UTF8
 exit 0
 '@
 
@@ -171,6 +180,7 @@ exit 0
         New-TestFile -Path (Join-Path $toolkitRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\manifest-rust-std-$($targetFixture.Triple)") -Content $manifestLines
     }
 
+    function Get-ManagedRustCommit { param([string]$ToolkitRoot) return '88d9e12ae178fab0fb5cc050a94da85685d449ea' }
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 
     $coreRoot = Join-Path $distRoot "staging\core"
@@ -178,6 +188,8 @@ exit 0
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_path_boundary.ps1")) -Message "core payload should contain the managed path helper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_payload_integrity.ps1")) -Message "core payload should contain the integrity helper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "payload-integrity.json")) -Message "core payload should contain its integrity index"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_isolation.ps1")) -Message "core payload should contain rust_build_isolation.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\build_win_link_inputs.ps1")) -Message "core payload should contain build_win_link_inputs.ps1"
     foreach ($linkInput in @("kernel32.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "dbghelp.lib", "msvcrt.lib", "rpc_winshim.lib")) {

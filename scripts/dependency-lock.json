@@ -1,0 +1,21 @@
+{
+  "rust": {
+    "release": "1.98.0",
+    "host": "x86_64-pc-windows-msvc",
+    "commit": "88d9e12ae178fab0fb5cc050a94da85685d449ea",
+    "source": "https://static.rust-lang.org/dist/channel-rust-1.98.0.toml"
+  },
+  "rustupBootstrap": {
+    "version": "1.29.0",
+    "source": "https://static.rust-lang.org/rustup/archive/1.29.0/x86_64-pc-windows-msvc/rustup-init.exe",
+    "checksumSource": "https://static.rust-lang.org/rustup/archive/1.29.0/x86_64-pc-windows-msvc/rustup-init.exe.sha256",
+    "sha256": "86478e53f769379d7f0ebfa7c9aa97cb76ca92233f79aa2cc0dbee2efaac73c7"
+  },
+  "zigArchive": {
+    "version": "0.13.0",
+    "source": "https://ziglang.org/download/0.13.0/zig-windows-x86_64-0.13.0.zip",
+    "checksumSource": "https://ziglang.org/download/index.json",
+    "sha256": "d859994725ef9402381e557c60bb57497215682e355204d754ee3df75ee3c158",
+    "executableSha256": "2e44af5bbf7a72ef8cbdae370284687c95d65a19affa469d2ad0364d905b8e84"
+  }
+}

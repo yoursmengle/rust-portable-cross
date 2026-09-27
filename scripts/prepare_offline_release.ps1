@@ -16,6 +16,7 @@ if (-not (Test-Path -LiteralPath $script:RustTargetPayloadScriptPath -PathType L
     throw "Missing Rust target payload helper: $script:RustTargetPayloadScriptPath"
 }
 . $script:RustTargetPayloadScriptPath
+. (Join-Path $script:OfflineReleaseScriptRoot 'rust_payload_integrity.ps1')
 $script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
@@ -625,6 +626,8 @@ function Invoke-PrepareOfflineRelease {
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_target_payload.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_path_boundary.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\rust_payload_integrity.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\dependency-lock.json"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_isolation.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
@@ -672,6 +675,8 @@ function Invoke-PrepareOfflineRelease {
         "scripts/rust_env.ps1",
         "scripts/rust_target_payload.ps1",
         "scripts/rust_path_boundary.ps1",
+        "scripts/rust_payload_integrity.ps1",
+        "scripts/dependency-lock.json",
         "scripts/rust_build_isolation.ps1",
         "scripts/finalize_offline_install.ps1",
         "scripts/rust_build_x64_win_native.ps1",
@@ -756,6 +761,12 @@ function Invoke-PrepareOfflineRelease {
 
     $layout = New-InstallLayout -Version $Version -ComponentFiles $layoutComponentFiles
     $layout | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $paths.LayoutPath -Encoding ASCII
+
+    $writtenLayout = Get-Content -LiteralPath $paths.LayoutPath -Raw | ConvertFrom-Json
+    Write-Step 'Indexing and verifying staged payload contents'
+    Assert-WindowsLinkInputProvenance -ToolkitRoot $paths.CoreRoot
+    $null = New-PayloadIntegrityIndex -StagingRoot $paths.StagingRoot -SourceRoot $paths.ToolkitRoot -Layout $writtenLayout
+    $null = Test-PayloadIntegrityIndex -StagingRoot $paths.StagingRoot -Layout $writtenLayout -RequireIndex
 
     Write-Step "Offline release staging complete"
     foreach ($componentName in $layoutComponentFiles.Keys) {
