@@ -3,6 +3,7 @@ param([Parameter(Mandatory = $true)][string]$InstallRoot, [Parameter(Mandatory =
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'release_artifact_evidence.ps1')
 $install = [IO.Path]::GetFullPath($InstallRoot)
 $layoutPath = Join-Path $install 'install-layout.json'
 if (-not (Test-Path -LiteralPath $layoutPath -PathType Leaf)) { throw "Missing installed layout: $layoutPath" }
@@ -48,8 +49,8 @@ if (-not [string]::Equals($cargo, (Join-Path $install 'tools\cargo-home\bin\carg
 
 $fixture = Join-Path $install 'test\fixtures\release_smoke'
 foreach ($entry in @(
-    @{ Name = 'ARMv7'; Script = 'rust_build_armv7.ps1'; Triple = 'armv7-unknown-linux-musleabihf' },
-    @{ Name = 'AArch64'; Script = 'rust_build_aarch64.ps1'; Triple = 'aarch64-unknown-linux-musl' }
+    @{ Name = 'ARMv7'; Script = 'rust_build_armv7.ps1'; Triple = 'armv7-unknown-linux-musleabihf'; Target = 'armv7' },
+    @{ Name = 'AArch64'; Script = 'rust_build_aarch64.ps1'; Triple = 'aarch64-unknown-linux-musl'; Target = 'aarch64' }
 )) {
     Push-Location -LiteralPath $fixture
     try {
@@ -59,6 +60,7 @@ foreach ($entry in @(
         if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or (Get-Item -LiteralPath $binary).Length -eq 0) {
             throw "$($entry.Name) release smoke output is missing: $binary"
         }
+        Assert-LinuxReleaseArtifact -Path $binary -Target $entry.Target
     }
     finally { Pop-Location }
 }
@@ -71,6 +73,7 @@ $windowsOutput = @(& $windowsExe 2>&1)
 if ($LASTEXITCODE -ne 0 -or $windowsOutput -notcontains 'SELFCONTAINED OK') {
     throw "Windows release smoke executable failed: $($windowsOutput -join [Environment]::NewLine)"
 }
+Assert-WindowsReleaseArtifact -Path $windowsExe
 
 $sample = Join-Path $install 'sample'
 $dependencyManifest = Join-Path $install 'docs\sample-dependencies.json'
@@ -82,9 +85,9 @@ if ($dependencies.formatVersion -ne 1 -or @($dependencies.packages).Count -eq 0)
     throw 'Installed sample dependency manifest is empty or unsupported.'
 }
 foreach ($entry in @(
-    @{ Name = 'Windows'; Script = 'rust_build_x64_win_native.ps1' },
-    @{ Name = 'ARMv7'; Script = 'rust_build_armv7.ps1' },
-    @{ Name = 'AArch64'; Script = 'rust_build_aarch64.ps1' }
+    @{ Name = 'Windows'; Script = 'rust_build_x64_win_native.ps1'; Triple = 'x86_64-pc-windows-msvc'; Target = 'windows' },
+    @{ Name = 'ARMv7'; Script = 'rust_build_armv7.ps1'; Triple = 'armv7-unknown-linux-musleabihf'; Target = 'armv7' },
+    @{ Name = 'AArch64'; Script = 'rust_build_aarch64.ps1'; Triple = 'aarch64-unknown-linux-musl'; Target = 'aarch64' }
 )) {
     Write-Host "Building complete installed sample for $($entry.Name) offline"
     if ($entry.Name -eq 'Windows') {
@@ -96,6 +99,9 @@ foreach ($entry in @(
         finally { Pop-Location }
     }
     if ($LASTEXITCODE -ne 0) { throw "$($entry.Name) complete sample build failed ($LASTEXITCODE)" }
+    $sampleBinary = Join-Path $sample ("target\$($entry.Triple)\release\sample")
+    if ($entry.Target -eq 'windows') { Assert-WindowsReleaseArtifact -Path ($sampleBinary + '.exe') }
+    else { Assert-LinuxReleaseArtifact -Path $sampleBinary -Target $entry.Target }
 }
 & (Join-Path $install 'sample_embedded\make_image.ps1')
 if ($LASTEXITCODE -ne 0) { throw "Embedded release smoke failed ($LASTEXITCODE)" }
@@ -105,4 +111,5 @@ foreach ($extension in @('bin', 'hex')) {
         throw "Missing embedded release smoke output: $image"
     }
 }
+Assert-FirmwareReleaseArtifacts -ElfPath (Join-Path $install 'sample_embedded\target\thumbv7em-none-eabihf\release\sample_embedded') -BinPath (Join-Path $install 'sample_embedded\sample_embedded.bin') -HexPath (Join-Path $install 'sample_embedded\sample_embedded.hex')
 Write-Host "Release smoke passed for $install"

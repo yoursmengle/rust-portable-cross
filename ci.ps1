@@ -176,14 +176,19 @@ function New-ScriptCheck {
         [string]$Path
     )
 
+    # GetNewClosure() runs in a new module scope, so capture helper scriptblocks
+    # and the resolved runner explicitly instead of looking up script functions.
+    $runner = Get-PowerShellExecutable
+    $runCaptured = ${function:Invoke-Captured}
+    $makeOutcome = ${function:New-Outcome}
     return {
-        $result = Invoke-Captured -FilePath (Get-PowerShellExecutable) -Arguments @(
+        $result = & $runCaptured -FilePath $runner -Arguments @(
             "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Path
         )
         if ($result.ExitCode -eq 0) {
-            return New-Outcome -Status "Passed"
+            return (& $makeOutcome -Status "Passed")
         }
-        return New-Outcome -Status "Failed" -Reason "exited with code $($result.ExitCode)" -Output $result.Output
+        return (& $makeOutcome -Status "Failed" -Reason "exited with code $($result.ExitCode)" -Output $result.Output)
     }.GetNewClosure()
 }
 

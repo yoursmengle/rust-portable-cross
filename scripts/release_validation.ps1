@@ -272,7 +272,7 @@ function Invoke-DisposableInstallerValidation {
         installer = [IO.Path]::GetFullPath($InstallerPath)
         installerSha256 = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
         validatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        validation = @('payload-index', 'rust-targets', 'windows-c', 'armv7-proc-macro', 'aarch64-proc-macro', 'full-sample-windows', 'full-sample-armv7', 'full-sample-aarch64', 'thumbv7em-bin-hex')
+        validation = @('payload-index', 'rust-targets', 'windows-c', 'armv7-proc-macro', 'aarch64-proc-macro', 'full-sample-windows', 'full-sample-armv7', 'full-sample-aarch64', 'x64-pe-imports', 'linux-elf-abi', 'thumbv7em-vector-bin-hex')
         networkConstraint = 'rustup-auto-install-disabled; cargo-offline; proxy-blackhole'
         temporaryInstallRemoved = -not (Test-Path -LiteralPath $validationRoot)
         priorRegistrationRestored = $true

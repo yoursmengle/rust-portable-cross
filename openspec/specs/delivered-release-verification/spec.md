@@ -52,3 +52,10 @@ The staged and installed release SHALL build the bundled full sample under an is
 #### Scenario: All supported targets
 - **WHEN** the complete sample and embedded sample are built for the Windows host, ARMv7 Linux, AArch64 Linux, and Thumbv7EM targets
 - **THEN** each build uses the installed toolchain and either succeeds or blocks publication with a diagnostic
+
+### Requirement: Target artifact identity is a publication gate
+After staged and installed smoke builds, the release SHALL inspect the generated Windows, ARMv7, AArch64, and Thumbv7EM artifacts before an installer or split manifest is published.
+
+#### Scenario: Installed output has wrong architecture
+- **WHEN** a build exits successfully but emits an artifact for an unexpected architecture
+- **THEN** staged or installed release validation fails and the public manifest stays unchanged

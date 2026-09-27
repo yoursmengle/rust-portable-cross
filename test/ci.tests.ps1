@@ -160,6 +160,40 @@ finally {
     Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Full lane executes real child checks and preserves their exit status -----
+
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name 'alpha.tests.ps1' -Body 'exit 0'
+    foreach ($relative in @(
+        'tools/cargo-home/bin/cargo.exe',
+        'tools/cargo-home/bin/rustc.exe',
+        'tools/zig/zig.exe'
+    )) {
+        $path = Join-Path $repo $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        [IO.File]::WriteAllBytes($path, [byte[]]@())
+    }
+    New-Item -ItemType Directory -Path (Join-Path $repo 'tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc') -Force | Out-Null
+    foreach ($name in @('aarch64', 'armv7', 'thumbv7em', 'x64_win')) {
+        $code = if ($name -eq 'armv7') { 7 } else { 0 }
+        $body = "Add-Content -LiteralPath (Join-Path `$PSScriptRoot 'target-runs.txt') -Value '$name'`nexit $code`n"
+        [IO.File]::WriteAllText((Join-Path $repo "check_tool_$name.ps1"), $body, (New-Object Text.UTF8Encoding($false)))
+    }
+    $run = Invoke-Gate -RepoPath $repo -Arguments @('-Full')
+    Assert-Equal -Actual $run.ExitCode -Expected 1 -Message "The failing ARMv7 child must fail Full CI.`n$($run.Output)"
+    $called = @(Get-Content -LiteralPath (Join-Path $repo 'target-runs.txt'))
+    Assert-Equal -Actual $called.Count -Expected 4 -Message 'Full CI must invoke each target check.'
+    Assert-True -Condition ($run.Output -match 'FAIL\s+check_tool_armv7\.ps1' -and
+        $run.Output -match 'exited with code 7' -and
+        $run.Output -match 'PASS\s+check_tool_aarch64\.ps1' -and
+        $run.Output -match 'PASS\s+check_tool_thumbv7em\.ps1' -and
+        $run.Output -match 'PASS\s+check_tool_x64_win\.ps1') -Message "Full CI target results were not reported correctly.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- A tracked script that does not parse -----------------------------------
 
 $repo = New-GateRepo
