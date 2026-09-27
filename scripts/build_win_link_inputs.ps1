@@ -26,6 +26,12 @@ if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
 }
 . $pathBoundaryScript
 $ToolkitRoot = Assert-ManagedRootIsOrdinary -Path $ToolkitRoot
+. (Join-Path $PSScriptRoot 'rust_transaction.ps1')
+. (Join-Path $PSScriptRoot 'rust_payload_integrity.ps1')
+$operationLock = Enter-ToolkitOperation -Root $ToolkitRoot -Scope toolkit -Operation 'generate-windows-sysroot'
+$sysrootRoot = $null
+$sysrootParent = $null
+try {
 
 $script:Triple = "$Arch-pc-windows-msvc"
 $script:DllToolMachine = "i386:x86-64"
@@ -34,9 +40,16 @@ $script:DefArchMacro = "DEF_X64"
 $zigExe = Join-Path $ToolkitRoot "tools\zig\zig.exe"
 $mingwRoot = Join-Path $ToolkitRoot "tools\zig\lib\libc\mingw"
 $defIncludeRoot = Join-Path $mingwRoot "def-include"
-$sysrootRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple"
-$libRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple/lib"
-$workRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple/.work"
+$sysrootParent = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath 'tools/sysroot'
+$publishedSysroot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple"
+New-Item -ItemType Directory -Path $sysrootParent -Force | Out-Null
+Restore-PreviousManagedDirectory -ManagedRoot $sysrootParent -ActivePath $publishedSysroot
+foreach ($stale in @(Get-ChildItem -LiteralPath $sysrootParent -Directory -Filter "$($script:Triple).next.*" -ErrorAction SilentlyContinue)) {
+    Remove-TransactionDirectory -ManagedRoot $sysrootParent -Path $stale.FullName
+}
+$sysrootRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath ("tools/sysroot/$($script:Triple).next." + [guid]::NewGuid().ToString('N'))
+$libRoot = Join-Path $sysrootRoot 'lib'
+$workRoot = Join-Path $sysrootRoot '.work'
 
 if (-not (Test-Path -LiteralPath $zigExe -PathType Leaf)) {
     throw "Missing bundled Zig compiler: $zigExe`nThe Windows link inputs are generated from assets under tools\zig. Run .\scripts\rust_setup.ps1 first."
@@ -138,6 +151,16 @@ function Get-RelativeToToolkit {
     return $full.Substring($rootFull.Length).TrimStart('\', '/') -replace '\\', '/'
 }
 
+function Get-PublishedProvenancePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $relative = Get-RelativeToToolkit -Path $Path
+    $candidatePrefix = (Get-RelativeToToolkit -Path $sysrootRoot) + '/'
+    if ($relative.StartsWith($candidatePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        return "tools/sysroot/$($script:Triple)/" + $relative.Substring($candidatePrefix.Length)
+    }
+    return $relative
+}
+
 function Add-Provenance {
     param(
         [Parameter(Mandatory = $true)][string]$OutputPath,
@@ -147,8 +170,8 @@ function Add-Provenance {
     )
 
     $script:Provenance.Add([ordered]@{
-        file = Get-RelativeToToolkit -Path $OutputPath
-        sources = @($SourcePaths | ForEach-Object { Get-RelativeToToolkit -Path $_ })
+        file = Get-PublishedProvenancePath -Path $OutputPath
+        sources = @($SourcePaths | ForEach-Object { Get-PublishedProvenancePath -Path $_ })
         command = $Command
         license = $License
         sha256 = (Get-FileHash -LiteralPath $OutputPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -670,12 +693,6 @@ function New-ShimArchive {
 
 Write-Step "Regenerating Windows link inputs for $script:Triple"
 
-if ($Force -and (Test-Path -LiteralPath $libRoot)) {
-    Remove-Item -LiteralPath $libRoot -Recurse -Force
-}
-if (Test-Path -LiteralPath $workRoot) {
-    Remove-Item -LiteralPath $workRoot -Recurse -Force
-}
 New-DirectoryIfMissing -Path $libRoot
 New-DirectoryIfMissing -Path $workRoot
 
@@ -743,7 +760,19 @@ finally {
     }
 }
 
+Assert-WindowsLinkInputProvenance -ToolkitRoot $ToolkitRoot -SysrootRoot $sysrootRoot
+Promote-ManagedDirectory -ManagedRoot $sysrootParent -ActivePath $publishedSysroot -CandidatePath $sysrootRoot
+$libRoot = Join-Path $publishedSysroot 'lib'
 Write-Step "Windows link inputs written to $libRoot"
 Get-ChildItem -LiteralPath $libRoot -Filter *.lib | Sort-Object Name | ForEach-Object {
     Write-Host ("    {0,-20} {1,10:N0} bytes" -f $_.Name, $_.Length)
+}
+}
+finally {
+    try {
+        if ($sysrootRoot -and (Test-Path -LiteralPath $sysrootRoot)) {
+            Remove-TransactionDirectory -ManagedRoot $sysrootParent -Path $sysrootRoot
+        }
+    }
+    finally { Exit-ToolkitOperation -Handle $operationLock }
 }

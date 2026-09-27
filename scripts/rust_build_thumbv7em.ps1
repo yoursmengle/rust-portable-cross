@@ -26,6 +26,7 @@ if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
     throw "Missing build isolation helper: $isolationScript"
 }
 . $isolationScript
+. (Join-Path $PSScriptRoot 'rust_transaction.ps1')
 
 function Sync-CargoConfig {
     param(
@@ -51,6 +52,7 @@ function Sync-CargoConfig {
 }
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$operationLock = Enter-ToolkitOperation -Root $toolkitRoot -Scope toolkit -Operation 'build-thumbv7em'
 $windowsHostCargoConfig = $null
 try {
 Clear-RustBuildEnvironment
@@ -76,5 +78,6 @@ finally {
     if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
         Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
     }
-    Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
+    try { Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot }
+    finally { Exit-ToolkitOperation -Handle $operationLock }
 }

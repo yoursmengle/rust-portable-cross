@@ -80,6 +80,7 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_target_payload.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_path_boundary.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_transaction.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_payload_integrity.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\dependency-lock.json") -Content (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\scripts\dependency-lock.json') -Raw)
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
@@ -188,6 +189,7 @@ exit 0
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_path_boundary.ps1")) -Message "core payload should contain the managed path helper"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_transaction.ps1")) -Message "core payload should contain the transaction helper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_payload_integrity.ps1")) -Message "core payload should contain the integrity helper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "payload-integrity.json")) -Message "core payload should contain its integrity index"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_isolation.ps1")) -Message "core payload should contain rust_build_isolation.ps1"
@@ -235,7 +237,7 @@ exit 0
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "thumbv7em\tools\wrappers"))) -Message "thumbv7em payload should not ship a Zig cross-compiler wrapper"
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $targetsRoot "x64_win"))) -Message "staging should not create an x64_win payload"
 
-    $layout = Get-Content -LiteralPath (Join-Path $coreRoot "install-layout.json") -Raw | ConvertFrom-Json -Depth 6
+    $layout = Get-Content -LiteralPath (Join-Path $coreRoot "install-layout.json") -Raw | ConvertFrom-Json
     Assert-Equal -Actual $layout.productVersion -Expected "1.2.3" -Message "layout should preserve the requested version"
     Assert-Equal -Actual $layout.hostToolchain -Expected "1.98.0-x86_64-pc-windows-msvc" -Message "layout should record the pinned MSVC host toolchain"
     Assert-Equal -Actual $layout.defaultComponents.Count -Expected 1 -Message "layout should keep a single default component"
@@ -258,6 +260,16 @@ exit 0
     Assert-True -Condition (-not ($layout.componentFiles.PSObject.Properties.Name -contains "x64_win")) -Message "layout should not record a removed x64_win component"
     Assert-True -Condition ($layout.componentFiles.core -contains "scripts/rust_target_payload.ps1") -Message "layout should record the shared Rust target payload helper"
 
+    $lateCopySource = Join-Path $toolkitRoot 'sample_embedded\README.md'
+    Remove-Item -LiteralPath $lateCopySource -Force
+    $copyFailure = $null
+    try { Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version '1.2.4' | Out-Null }
+    catch { $copyFailure = $_.Exception.Message }
+    Assert-True -Condition ($copyFailure -match 'Required path is missing') -Message "late copy failure was not surfaced: $copyFailure"
+    $retainedAfterCopy = Get-Content -LiteralPath (Join-Path $coreRoot 'install-layout.json') -Raw | ConvertFrom-Json
+    Assert-Equal -Actual $retainedAfterCopy.productVersion -Expected '1.2.3' -Message 'late copy failure must preserve the previous staging version'
+    New-TestFile -Path $lateCopySource
+
     Remove-Item -LiteralPath (Join-Path $hostRustlib "libstd-test.rlib") -Force
     $repairOutput = $null
     try {
@@ -266,7 +278,9 @@ exit 0
     catch {
         $repairOutput = $_.Exception.Message
     }
-    Assert-True -Condition ($repairOutput -match "x86_64-pc-windows-msvc|rustup component add") -Message "release staging should name an incomplete hosted payload when repair cannot run"
+    Assert-True -Condition ($repairOutput -match "x86_64-pc-windows-msvc|rustup component add") -Message "release staging should name an incomplete hosted payload when repair cannot run: $repairOutput"
+    $retainedLayout = Get-Content -LiteralPath (Join-Path $coreRoot 'install-layout.json') -Raw | ConvertFrom-Json
+    Assert-Equal -Actual $retainedLayout.productVersion -Expected '1.2.3' -Message 'failed refresh must preserve the previous staging version'
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

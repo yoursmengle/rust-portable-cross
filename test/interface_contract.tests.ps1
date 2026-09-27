@@ -170,7 +170,13 @@ foreach ($schema in $contract.jsonFields.PSObject.Properties) {
         'build.ps1' { 'originalFileName' }
         default { throw "Unknown JSON constructor in baseline: $($schema.Name)" }
     }
-    $actualKeys = @(Get-HashtableKeys -SourcePath $schema.Name -Marker $marker)
+    $constructorSource = $schema.Name
+    if ($schema.Name -eq 'build.ps1') {
+        Assert-SourceContains 'publication helper loading' 'build.ps1' 'scripts\release_publish.ps1'
+        Assert-SourceContains 'publication helper call' 'build.ps1' 'Invoke-SplitPublication'
+        $constructorSource = 'scripts/release_publish.ps1'
+    }
+    $actualKeys = @(Get-HashtableKeys -SourcePath $constructorSource -Marker $marker)
     Assert-SameSequence -Label "$($schema.Name) JSON fields" -Actual $actualKeys -Expected @($schema.Value)
 }
 

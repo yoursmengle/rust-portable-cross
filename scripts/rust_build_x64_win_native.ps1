@@ -66,15 +66,18 @@ if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
     throw "Missing build isolation helper: $isolationScript"
 }
 . $isolationScript
+. (Join-Path $PSScriptRoot 'rust_transaction.ps1')
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$operationLock = Enter-ToolkitOperation -Root $toolkitRoot -Scope toolkit -Operation 'build-x64-win'
 $windowsHostCargoConfig = $null
+$nativeWrapperRoot = $null
 try {
 Clear-RustBuildEnvironment
 
 New-DirectoryIfMissing -Path $wrappersRoot
 
-$nativeWrapperRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rust-portable-cross-x64-native-wrapper"
+$nativeWrapperRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('rust-portable-cross-x64-native-wrapper-' + [guid]::NewGuid().ToString('N'))
 New-DirectoryIfMissing -Path $nativeWrapperRoot
 
 $x64WrapperPs1Path = Join-Path $nativeWrapperRoot "x64-windows-msvc-zig-cc.ps1"
@@ -190,5 +193,13 @@ finally {
     if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
         Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
     }
-    Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
+    try { Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot }
+    finally {
+        try {
+            if ($nativeWrapperRoot -and (Test-Path -LiteralPath $nativeWrapperRoot)) {
+                Remove-TransactionDirectory -ManagedRoot ([IO.Path]::GetTempPath()) -Path $nativeWrapperRoot
+            }
+        }
+        finally { Exit-ToolkitOperation -Handle $operationLock }
+    }
 }

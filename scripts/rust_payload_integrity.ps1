@@ -145,9 +145,9 @@ function Test-PayloadIntegrityIndex {
 }
 
 function Assert-WindowsLinkInputProvenance {
-    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot, [string]$SysrootRoot)
 
-    $sysroot = Join-Path $ToolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc'
+    $sysroot = if ($SysrootRoot) { $SysrootRoot } else { Join-Path $ToolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc' }
     $libRoot = Join-Path $sysroot 'lib'
     $provenancePath = Join-Path $sysroot 'PROVENANCE.json'
     if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {

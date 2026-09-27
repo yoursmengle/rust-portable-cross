@@ -13,6 +13,7 @@ $IssFile = Join-Path $RepoRoot "packaging\inno\rust_portable_cross.iss"
 $StagingDir = Join-Path $RepoRoot "dist\staging"
 $InstallerDir = Join-Path $RepoRoot "dist\installer"
 $PrepareScript = Join-Path $RepoRoot "scripts\prepare_offline_release.ps1"
+. (Join-Path $RepoRoot 'scripts\release_publish.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -26,65 +27,7 @@ function Split-FileAndPublish {
         [string]$RepoPath
     )
 
-    $chunkSize = 24 * 1024 * 1024  # 24 MB
-
-    $webDownloadDir = Join-Path (Split-Path -Parent $RepoPath) "web_hec_ai_studio\assets\download"
-    if (-not (Test-Path -LiteralPath $webDownloadDir)) {
-        New-Item -ItemType Directory -Path $webDownloadDir -Force | Out-Null
-    }
-
-    $fileName    = [IO.Path]::GetFileName($InstallerPath)
-    $originalSize = (Get-Item -LiteralPath $InstallerPath).Length
-    $origHash    = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLower()
-
-    $partNames  = [System.Collections.Generic.List[string]]::new()
-    $partSizes  = [System.Collections.Generic.List[long]]::new()
-    $partHashes = [System.Collections.Generic.List[string]]::new()
-
-    $buffer  = New-Object byte[] $chunkSize
-    $partIdx = 1
-
-    $inStream = [System.IO.File]::OpenRead($InstallerPath)
-    try {
-        while ($true) {
-            $bytesRead = $inStream.Read($buffer, 0, $chunkSize)
-            if ($bytesRead -eq 0) { break }
-
-            $partName = '{0}.part{1:D3}' -f $fileName, $partIdx
-            $partPath = Join-Path $webDownloadDir $partName
-
-            $outStream = [System.IO.File]::Create($partPath)
-            try {
-                $outStream.Write($buffer, 0, $bytesRead)
-            } finally {
-                $outStream.Close()
-            }
-
-            $partNames.Add($partName)
-            $partSizes.Add([long]$bytesRead)
-            $partHashes.Add((Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash.ToLower())
-
-            $partIdx++
-        }
-    } finally {
-        $inStream.Close()
-    }
-
-    $manifest = [ordered]@{
-        originalFileName = $fileName
-        version          = $Version
-        originalSize     = $originalSize
-        originalHash     = $origHash
-        partCount        = $partNames.Count
-        partFileNames    = $partNames.ToArray()
-        partFileSizes    = $partSizes.ToArray()
-        partFileHashes   = $partHashes.ToArray()
-    }
-
-    $jsonPath = Join-Path $webDownloadDir "rust-portable-cross-offline.json"
-    $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
-
-    return $webDownloadDir
+    return Invoke-SplitPublication -InstallerPath $InstallerPath -Version $Version -RepoPath $RepoPath
 }
 
 function Get-InstallerExportDirectory {
@@ -146,6 +89,7 @@ function Get-VersionFromGitTag {
     return $normalized
 }
 
+if ($env:RUST_PORTABLE_CROSS_SKIP_BUILD_MAIN -ne '1') {
 if ([string]::IsNullOrWhiteSpace($Version)) {
     Write-Step "Resolving version from latest git tag"
     $Version = Get-VersionFromGitTag -RepoPath $RepoRoot
@@ -235,4 +179,5 @@ if (Test-Path -LiteralPath $ExpectedExe) {
     Write-Host "    Parts and manifest written to $WebDir" -ForegroundColor Green
 } else {
     Write-Warning "Installer compilation reported success but expected output not found: $ExpectedExe"
+}
 }

@@ -17,6 +17,7 @@ if (-not (Test-Path -LiteralPath $script:RustTargetPayloadScriptPath -PathType L
 }
 . $script:RustTargetPayloadScriptPath
 . (Join-Path $script:OfflineReleaseScriptRoot 'rust_payload_integrity.ps1')
+. (Join-Path $script:OfflineReleaseScriptRoot 'rust_transaction.ps1')
 $script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
@@ -443,7 +444,10 @@ function Ensure-TargetRustStdPayloads {
         [hashtable]$Paths
     )
 
-    $toolchainRoot = Join-Path $Paths.ToolkitRoot "tools\rustup-home\toolchains\$script:HostToolchain"
+    $toolsRoot = Join-Path $Paths.ToolkitRoot 'tools'
+    $activeHome = Join-Path $toolsRoot 'rustup-home'
+    Restore-PreviousManagedDirectory -ManagedRoot $toolsRoot -ActivePath $activeHome
+    $toolchainRoot = Join-Path $activeHome "toolchains\$script:HostToolchain"
     $rustupCmd = Join-Path $Paths.ToolkitRoot "tools\cargo-home\bin\rustup.exe"
     if (-not (Test-Path -LiteralPath $toolchainRoot -PathType Container)) {
         throw "Managed toolchain is missing for target payload validation: $toolchainRoot"
@@ -473,10 +477,16 @@ function Ensure-TargetRustStdPayloads {
     $hostIncomplete = @($incomplete | Where-Object { $_.TargetTriple -eq $script:HostTriple }).Count -gt 0
     Write-Step "Incomplete Rust target payloads detected for $(($incomplete | ForEach-Object { $_.TargetTriple }) -join ', '); attempting managed repair"
 
+    foreach ($stale in @(Get-ChildItem -LiteralPath $toolsRoot -Directory -Filter 'rustup-home.next.*' -ErrorAction SilentlyContinue)) {
+        Remove-TransactionDirectory -ManagedRoot $toolsRoot -Path $stale.FullName
+    }
+    $candidateHome = Join-Path $toolsRoot ('rustup-home.next.' + [guid]::NewGuid().ToString('N'))
+    Copy-Item -LiteralPath $activeHome -Destination $candidateHome -Recurse -Force
+    $candidateToolchainRoot = Join-Path $candidateHome "toolchains\$script:HostToolchain"
     $snapshot = @{}
     try {
         Set-ScopedEnvironmentVariable -Name "CARGO_HOME" -Value (Join-Path $Paths.ToolkitRoot "tools\cargo-home") -Snapshot $snapshot
-        Set-ScopedEnvironmentVariable -Name "RUSTUP_HOME" -Value (Join-Path $Paths.ToolkitRoot "tools\rustup-home") -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name "RUSTUP_HOME" -Value $candidateHome -Snapshot $snapshot
         Set-ScopedEnvironmentVariable -Name "RUSTUP_TOOLCHAIN" -Value $script:HostToolchain -Snapshot $snapshot
 
         if ([string]::IsNullOrWhiteSpace($env:RUSTUP_DIST_SERVER)) {
@@ -524,9 +534,25 @@ function Ensure-TargetRustStdPayloads {
                 throw "rustup target add failed for $($missingTriples -join ', ') with exit code $LASTEXITCODE"
             }
         }
+        foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
+            $payloadStatus = Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $candidateToolchainRoot -TargetTriple $payloadDefinition.Triple
+            if (-not $payloadStatus.IsComplete) {
+                throw (Format-RustTargetPayloadFailure -Status $payloadStatus)
+            }
+        }
+        $expectedCommit = (Get-PayloadDependencyLock -ToolkitRoot $Paths.ToolkitRoot).rust.commit
+        $candidateRustc = Join-Path $candidateToolchainRoot 'bin\rustc.exe'
+        $rustcDetails = @(& $candidateRustc -vV 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $rustcDetails -notcontains "commit-hash: $expectedCommit") {
+            throw 'Repaired Rust compiler does not match the dependency lock.'
+        }
+        Promote-ManagedDirectory -ManagedRoot $toolsRoot -ActivePath $activeHome -CandidatePath $candidateHome
     }
     finally {
         Restore-ScopedEnvironmentVariables -Snapshot $snapshot
+        if (Test-Path -LiteralPath $candidateHome) {
+            Remove-TransactionDirectory -ManagedRoot $toolsRoot -Path $candidateHome
+        }
     }
 
     foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
@@ -621,11 +647,28 @@ function Invoke-PrepareOfflineRelease {
     )
 
     $paths = Get-OfflineReleasePaths -ToolkitRoot $ToolkitRoot -OutputRoot $OutputRoot
+    $toolkitLock = Enter-ToolkitOperation -Root $paths.ToolkitRoot -Scope toolkit -Operation 'prepare-offline-release'
+    $outputLock = $null
+    $candidateStagingRoot = $null
+    try {
+    $outputLock = Enter-ToolkitOperation -Root $paths.OutputRoot -Scope staging -Operation 'prepare-offline-release'
+    Ensure-Directory -Path $paths.OutputRoot
+    $publishedStagingRoot = $paths.StagingRoot
+    Restore-PreviousManagedDirectory -ManagedRoot $paths.OutputRoot -ActivePath $publishedStagingRoot
+    foreach ($stale in @(Get-ChildItem -LiteralPath $paths.OutputRoot -Directory -Filter 'staging.next.*' -ErrorAction SilentlyContinue)) {
+        Remove-ManagedPath -Path $stale.FullName -ManagedRoot $paths.OutputRoot
+    }
+    $candidateStagingRoot = Resolve-ManagedRelativePath -Root $paths.OutputRoot -RelativePath ('staging.next.' + [guid]::NewGuid().ToString('N'))
+    $paths.StagingRoot = $candidateStagingRoot
+    $paths.CoreRoot = Join-Path $candidateStagingRoot 'core'
+    $paths.TargetsRoot = Join-Path $candidateStagingRoot 'targets'
+    $paths.LayoutPath = Join-Path $paths.CoreRoot 'install-layout.json'
 
     foreach ($requiredPath in @(
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_target_payload.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_path_boundary.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\rust_transaction.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_payload_integrity.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\dependency-lock.json"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_isolation.ps1"),
@@ -675,6 +718,7 @@ function Invoke-PrepareOfflineRelease {
         "scripts/rust_env.ps1",
         "scripts/rust_target_payload.ps1",
         "scripts/rust_path_boundary.ps1",
+        "scripts/rust_transaction.ps1",
         "scripts/rust_payload_integrity.ps1",
         "scripts/dependency-lock.json",
         "scripts/rust_build_isolation.ps1",
@@ -768,12 +812,30 @@ function Invoke-PrepareOfflineRelease {
     $null = New-PayloadIntegrityIndex -StagingRoot $paths.StagingRoot -SourceRoot $paths.ToolkitRoot -Layout $writtenLayout
     $null = Test-PayloadIntegrityIndex -StagingRoot $paths.StagingRoot -Layout $writtenLayout -RequireIndex
 
+    Promote-ManagedDirectory -ManagedRoot $paths.OutputRoot -ActivePath $publishedStagingRoot -CandidatePath $candidateStagingRoot
+    $paths.StagingRoot = $publishedStagingRoot
+    $paths.CoreRoot = Join-Path $publishedStagingRoot 'core'
+    $paths.TargetsRoot = Join-Path $publishedStagingRoot 'targets'
+    $paths.LayoutPath = Join-Path $paths.CoreRoot 'install-layout.json'
+
     Write-Step "Offline release staging complete"
     foreach ($componentName in $layoutComponentFiles.Keys) {
         Write-Host ("  - {0}: {1} files" -f $componentName, $layoutComponentFiles[$componentName].Count)
     }
 
     return $paths
+    }
+    finally {
+        try {
+            if ($candidateStagingRoot -and (Test-Path -LiteralPath $candidateStagingRoot)) {
+                Remove-ManagedPath -Path $candidateStagingRoot -ManagedRoot $paths.OutputRoot
+            }
+        }
+        finally {
+            Exit-ToolkitOperation -Handle $outputLock
+            Exit-ToolkitOperation -Handle $toolkitLock
+        }
+    }
 }
 
 if ($env:RUST_PORTABLE_CROSS_SKIP_OFFLINE_RELEASE_MAIN -ne "1") {

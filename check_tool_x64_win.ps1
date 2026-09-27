@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    # Skips the negative test, which temporarily moves the sysroot aside.
+    # Skips the isolated missing-sysroot diagnostic test.
     [switch]$SkipNegativeTest
 )
 
@@ -28,6 +28,7 @@ if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
 }
 . $pathBoundaryScript
 . (Join-Path $repoRoot 'scripts\rust_payload_integrity.ps1')
+. (Join-Path $repoRoot 'scripts\rust_transaction.ps1')
 $toolsRoot = Join-Path $repoRoot "tools"
 $winSysroot = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc"
 $winSysrootLib = Join-Path $winSysroot "lib"
@@ -228,10 +229,7 @@ else {
 # --- Where the linker actually resolved its libraries -------------------------
 
 Write-Section "Link input provenance"
-$probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rust-portable-cross-selfcontained-probe"
-if (Test-Path -LiteralPath $probeRoot) {
-    Remove-Item -LiteralPath $probeRoot -Recurse -Force
-}
+$probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('rust-portable-cross-selfcontained-probe-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
 
 try {
@@ -333,7 +331,7 @@ fn main() {
     }
 }
 finally {
-    Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-TransactionDirectory -ManagedRoot ([IO.Path]::GetTempPath()) -Path $probeRoot
 }
 
 # --- Build and run, with the host toolchain scrubbed --------------------------
@@ -392,20 +390,16 @@ foreach ($project in $projects) {
 if (-not $SkipNegativeTest -and $missingLibraries.Count -eq 0) {
     Write-Section "Diagnostics with the link inputs removed"
 
-    $stashed = "$winSysrootLib.stashed"
-    if (Test-Path -LiteralPath $stashed) {
-        Remove-Item -LiteralPath $stashed -Recurse -Force
-    }
-
-    Move-Item -LiteralPath $winSysrootLib -Destination $stashed
+    $missingRoot = Join-Path ([IO.Path]::GetTempPath()) ('rust-portable-cross-missing-sysroot-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $missingRoot -Force | Out-Null
     try {
-        # The build is expected to fail here: a missing sysroot is a hard error, not
-        # a fallback to host Visual Studio. Catch it so this check can inspect the
-        # message rather than dying on it.
+        # This is the same guard every build entry calls, exercised against an
+        # empty private root. The real sysroot stays in place for other builds.
+        . (Join-Path $repoRoot 'scripts\rust_build_isolation.ps1')
         $output = ""
         $failedAsExpected = $false
         try {
-            $output = (& $buildScript -ProjectPath (Join-Path $repoRoot "test\fixtures\win_selfcontained") *>&1 | Out-String)
+            Initialize-WindowsHostLinkInputs -ToolkitRoot $missingRoot
         }
         catch {
             $failedAsExpected = $true
@@ -438,10 +432,7 @@ if (-not $SkipNegativeTest -and $missingLibraries.Count -eq 0) {
         }
     }
     finally {
-        if (Test-Path -LiteralPath $winSysrootLib) {
-            Remove-Item -LiteralPath $winSysrootLib -Recurse -Force
-        }
-        Move-Item -LiteralPath $stashed -Destination $winSysrootLib
+        Remove-TransactionDirectory -ManagedRoot ([IO.Path]::GetTempPath()) -Path $missingRoot
     }
 }
 

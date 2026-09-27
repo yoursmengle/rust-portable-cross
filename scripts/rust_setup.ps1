@@ -13,6 +13,7 @@ if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
     throw "Missing Rust target payload helper: $rustTargetPayloadScript"
 }
 . $rustTargetPayloadScript
+. (Join-Path $script:RustToolkitScriptRoot 'rust_transaction.ps1')
 
 # Download override knobs:
 # - RUST_PORTABLE_CROSS_RUSTUP_INIT_URL / RUST_PORTABLE_CROSS_ZIG_URL: highest-priority direct download URL
@@ -576,7 +577,13 @@ function Invoke-RustToolkitSetup {
         }
     }
 
-    foreach ($directory in @($toolsRoot, $downloadsRoot, $rustupBinRoot, $cargoHome, $rustupHome, $zigLocalCache, $zigGlobalCache, $wrappersRoot)) {
+    Ensure-Directory -Path $toolsRoot
+    Restore-PreviousManagedDirectory -ManagedRoot $toolsRoot -ActivePath $rustupHome
+    Restore-PreviousManagedDirectory -ManagedRoot $toolsRoot -ActivePath $zigRoot
+    foreach ($stale in @(Get-ChildItem -LiteralPath $toolsRoot -Directory -Filter 'rustup-home.next.*' -ErrorAction SilentlyContinue)) {
+        Remove-TransactionDirectory -ManagedRoot $toolsRoot -Path $stale.FullName
+    }
+    foreach ($directory in @($downloadsRoot, $rustupBinRoot, $cargoHome, $rustupHome, $zigLocalCache, $zigGlobalCache, $wrappersRoot)) {
         Ensure-Directory -Path $directory
     }
 
@@ -591,16 +598,6 @@ function Invoke-RustToolkitSetup {
     )) {
         Remove-ManagedPath -Path (Join-Path $wrappersRoot $legacyWrapperFile)
     }
-    # Remove toolchains from the previous floating-channel layout before installing the
-    # pinned toolchain. This prevents a stale 1.95 payload from being picked up or shipped.
-    foreach ($obsoleteToolchain in @(
-        "stable-x86_64-pc-windows-msvc",
-        "stable-$legacyHostTriple"
-    )) {
-        Remove-ManagedPath -Path (Join-Path $rustupHome "toolchains\$obsoleteToolchain")
-        Remove-ManagedPath -Path (Join-Path $rustupHome "update-hashes\$obsoleteToolchain")
-    }
-
     $env:RUST_PORTABLE_CROSS_ROOT = $toolkitRoot
     $env:CARGO_HOME = $cargoHome
     $env:RUSTUP_HOME = $rustupHome
@@ -671,6 +668,44 @@ function Invoke-RustToolkitSetup {
         throw 'Managed rustup.exe does not match the dependency lock.'
     }
 
+    Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
+    $env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
+    $rustReady = $false
+    $toolchainRoot = Join-Path $rustupHome 'toolchains\1.98.0-x86_64-pc-windows-msvc'
+    if (Test-Path -LiteralPath $toolchainRoot -PathType Container) {
+        try {
+            $existingRustcDetails = @(Get-NativeOutput -FilePath $rustcExe -Arguments @('-vV'))
+            $rustReady = ($existingRustcDetails -contains "commit-hash: $($dependencyLock.rust.commit)" -and
+                $existingRustcDetails -contains "release: $($dependencyLock.rust.release)" -and
+                $existingRustcDetails -contains "host: $($dependencyLock.rust.host)")
+            foreach ($definition in (Get-RustTargetPayloadDefinitions).Values) {
+                if (-not (Get-RustTargetPayloadStatusFromToolchain -ToolchainRoot $toolchainRoot -TargetTriple $definition.Triple).IsComplete) {
+                    $rustReady = $false
+                }
+            }
+        }
+        catch { $rustReady = $false }
+    }
+
+    if ($rustReady) {
+        Write-Step 'Using verified existing Rust 1.98.0 toolchain and targets'
+        $rustcVerbose = $existingRustcDetails
+    }
+    else {
+    $candidateHome = Join-Path $toolsRoot ('rustup-home.next.' + [guid]::NewGuid().ToString('N'))
+    $activeRustupHome = $env:RUSTUP_HOME
+    try {
+        Copy-Item -LiteralPath $rustupHome -Destination $candidateHome -Recurse -Force
+        $env:RUSTUP_HOME = $candidateHome
+        # Retire old floating-channel payloads only in the private copy. A failed
+        # installation must leave the currently published rustup home intact.
+        foreach ($obsoleteToolchain in @(
+            "stable-x86_64-pc-windows-msvc",
+            "stable-$legacyHostTriple"
+        )) {
+            Remove-TransactionDirectory -ManagedRoot $candidateHome -Path (Join-Path $candidateHome "toolchains\$obsoleteToolchain")
+            Remove-TransactionDirectory -ManagedRoot $candidateHome -Path (Join-Path $candidateHome "update-hashes\$obsoleteToolchain")
+        }
     Write-Step "Ensuring 1.98.0-x86_64-pc-windows-msvc is installed"
     Install-PinnedRustToolchain `
         -RustupPath $rustupCmd `
@@ -682,8 +717,6 @@ function Invoke-RustToolkitSetup {
         "default",
         "1.98.0-x86_64-pc-windows-msvc"
     )
-
-    Copy-Item -LiteralPath $rustupCmd -Destination (Join-Path $rustupBinRoot "rustup.exe") -Force
 
     Write-Step "Installing Linux musl and bare-metal embedded targets"
     Invoke-Native -FilePath $rustupCmd -Arguments @(
@@ -751,6 +784,15 @@ function Invoke-RustToolkitSetup {
 
         Write-Host ("  - {0}: {1}" -f $payloadDefinition.Triple, $payloadStatus.Libdir)
     }
+        Promote-ManagedDirectory -ManagedRoot $toolsRoot -ActivePath $rustupHome -CandidatePath $candidateHome
+    }
+    finally {
+        $env:RUSTUP_HOME = $activeRustupHome
+        if (Test-Path -LiteralPath $candidateHome) {
+            Remove-TransactionDirectory -ManagedRoot $toolsRoot -Path $candidateHome
+        }
+    }
+    }
 
     $installZig = $true
     if (Test-Path -LiteralPath $zigExe) {
@@ -768,18 +810,10 @@ function Invoke-RustToolkitSetup {
 
     if ($installZig) {
         Write-Step "Installing Zig $zigVersion"
-        Ensure-Directory -Path $zigRoot
         $zigExtractRoot = "{0}-{1}" -f $zigExtractRootBase, ([guid]::NewGuid().ToString("N"))
-        if (Test-Path -LiteralPath $zigExtractRoot) {
-            try {
-                Remove-ManagedPath -Path $zigExtractRoot
-            }
-            catch {
-                Write-Warning "Unable to clear temporary Zig extraction path $zigExtractRoot. $($_.Exception.Message)"
-            }
-        }
+        $candidateZigRoot = Join-Path $toolsRoot ('zig.next.' + [guid]::NewGuid().ToString('N'))
         Ensure-Directory -Path $zigExtractRoot
-
+        try {
         Ensure-Download `
             -Uris $zigDownloadUris `
             -Destination $zigArchive `
@@ -793,26 +827,21 @@ function Invoke-RustToolkitSetup {
         if (-not $expandedZigRoot) {
             throw "Unable to find extracted Zig directory under $zigExtractRoot"
         }
-
-        Get-ChildItem -LiteralPath $zigRoot -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            $existingPath = $_
-            try {
-                Remove-Item -LiteralPath $existingPath.FullName -Recurse -Force
+        [IO.Directory]::Move($expandedZigRoot.FullName, $candidateZigRoot)
+        $candidateZigExe = Join-Path $candidateZigRoot 'zig.exe'
+        if (-not (Test-LockedDownload -Path $candidateZigExe -ExpectedSha256 $dependencyLock.zigArchive.executableSha256) -or
+            (@(Get-NativeOutput -FilePath $candidateZigExe -Arguments @('version')))[0].ToString().Trim() -ne $zigVersion) {
+            throw 'Extracted Zig does not match the dependency lock.'
+        }
+        Promote-ManagedDirectory -ManagedRoot $toolsRoot -ActivePath $zigRoot -CandidatePath $candidateZigRoot
+        }
+        finally {
+            if (Test-Path -LiteralPath $candidateZigRoot) {
+                Remove-TransactionDirectory -ManagedRoot $toolsRoot -Path $candidateZigRoot
             }
-            catch {
-                Write-Warning "Unable to remove existing Zig path $($existingPath.FullName). Reinstall will overwrite remaining files where possible. $($_.Exception.Message)"
+            if (Test-Path -LiteralPath $zigExtractRoot) {
+                Remove-TransactionDirectory -ManagedRoot $downloadsRoot -Path $zigExtractRoot
             }
-        }
-
-        Get-ChildItem -LiteralPath $expandedZigRoot.FullName -Force | ForEach-Object {
-            Move-Item -LiteralPath $_.FullName -Destination $zigRoot -Force
-        }
-
-        try {
-            Remove-ManagedPath -Path $zigExtractRoot
-        }
-        catch {
-            Write-Warning "Unable to remove temporary Zig extraction path $zigExtractRoot. $($_.Exception.Message)"
         }
     }
     else {
@@ -1097,5 +1126,7 @@ function Invoke-RustToolkitSetup {
 }
 
 if ($env:RUST_PORTABLE_CROSS_SKIP_MAIN -ne "1") {
-    Invoke-RustToolkitSetup -Force:$Force
+    $operationLock = Enter-ToolkitOperation -Root $script:RustToolkitRoot -Scope toolkit -Operation 'rust-setup'
+    try { Invoke-RustToolkitSetup -Force:$Force }
+    finally { Exit-ToolkitOperation -Handle $operationLock }
 }
