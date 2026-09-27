@@ -56,7 +56,7 @@ function Assert-EnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild -notmatch ([regex]::Escape($legacyImportToolFunctionName) + '\s+-WrappersRoot')) `
         -Message "$ScriptPath should not ensure a legacy Windows import-library wrapper before cargo build."
     Assert-True `
-        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Condition ($body -match 'finally\s*\{[\s\S]*?Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
         -Condition ($beforeCargoBuild -match ([regex]::Escape("`$env:$RustflagsEnvName = `"-C link-self-contained=no`""))) `
@@ -119,7 +119,7 @@ function Assert-X64WinEnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -lt $beforeCargoBuild.IndexOf("Initialize-WindowsHostLinkInputs")) `
         -Message "$ScriptPath should clear stale target environment before initializing Windows host link inputs."
     Assert-True `
-        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Condition ($body -match 'finally\s*\{[\s\S]*?Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
         -Condition ($body -match "cargo build --release --target x86_64-pc-windows-msvc") `
@@ -181,8 +181,8 @@ Assert-True `
     -Condition ($isolationHelperBody -match 'function Initialize-WindowsHostLinkInputs') `
     -Message "Build isolation helper should initialize bundled Windows host link inputs."
 Assert-True `
-    -Condition ($isolationHelperBody -match [regex]::Escape('-C link-arg=/LIBPATH:$winSysrootLib')) `
-    -Message "Build isolation helper should put the bundled Windows link inputs ahead of any host library path."
+    -Condition ($isolationHelperBody -match [regex]::Escape('"link-arg=/LIBPATH:$winSysrootLib"')) `
+    -Message "Build isolation helper should pass the complete bundled Windows library path as one Cargo flag."
 Assert-True `
     -Condition ($isolationHelperBody -match [regex]::Escape('-C link-arg=rpc_winshim.lib')) `
     -Message "Build isolation helper should link the shim archive that supplies mainCRTStartup and __chkstk."
@@ -333,7 +333,7 @@ function Assert-Thumbv7emEnvBeforeCargoBuild {
         -Condition ($beforeCargoBuild.IndexOf("Clear-RustBuildEnvironment") -ge 0) `
         -Message "$ScriptPath should clear stale target environment before cargo build."
     Assert-True `
-        -Condition ($body -match 'finally\s*\{\s*Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
+        -Condition ($body -match 'finally\s*\{[\s\S]*?Restore-RustBuildEnvironment\s+-Snapshot\s+\$rustBuildEnvironmentSnapshot') `
         -Message "$ScriptPath should restore target environment in a finally block."
     Assert-True `
         -Condition ($beforeCargoBuild -match 'Initialize-WindowsHostLinkInputs\s+-ToolkitRoot\s+\$toolkitRoot') `

@@ -59,6 +59,7 @@ function Remove-EnvVarIfPresent {
 }
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$windowsHostCargoConfig = $null
 try {
 Clear-RustBuildEnvironment
 
@@ -79,6 +80,7 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
+$windowsHostCargoConfig = New-WindowsHostCargoConfigFile -ToolkitRoot $toolkitRoot
 
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "aarch64-linux-musl-gcc.cmd"
 $env:CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS = "-C link-self-contained=no"
@@ -91,7 +93,7 @@ Set-Item -Path "Env:RANLIB_aarch64-unknown-linux-musl" -Value "zig-ranlib.cmd"
 
 Sync-CargoConfig -Source $configSource -Destination $configTarget
 
-cargo build --release --target aarch64-unknown-linux-musl
+cargo build --release --target aarch64-unknown-linux-musl --config $windowsHostCargoConfig
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build failed for aarch64-unknown-linux-musl with exit code $LASTEXITCODE."
 }
@@ -99,5 +101,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Build output: $(Join-Path (Get-Location) 'target\aarch64-unknown-linux-musl\release')"
 }
 finally {
+    if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
+        Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
+    }
     Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
 }

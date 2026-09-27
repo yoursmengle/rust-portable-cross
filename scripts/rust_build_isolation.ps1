@@ -128,15 +128,82 @@ linking and needs no separate installation.
     $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
         -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
         -Flag "-C linker-flavor=lld-link"
-    # rustc injects host SDK LIB into the linker child from its registry probe and
-    # offers no switch to stop it. lld-link searches /LIBPATH: before LIB, so naming
-    # the bundled sysroot here makes it win on any machine.
-    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
-        -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
-        -Flag "-C link-arg=/LIBPATH:$winSysrootLib"
+    # The path-bearing /LIBPATH argument is supplied as a Cargo TOML array by
+    # Get-WindowsHostCargoConfigOverride. Cargo splits this environment string
+    # on whitespace even when the path fragment is quoted.
     $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = Add-RustBuildFlagIfMissing `
         -Existing $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS `
         -Flag "-C link-arg=rpc_winshim.lib"
+}
+
+function Get-ToolkitPathEntries {
+    param([AllowEmptyString()][string]$ToolkitRoot)
+    if ([string]::IsNullOrWhiteSpace($ToolkitRoot)) { return @() }
+    $managedTools = Join-Path $ToolkitRoot 'tools'
+    return @(
+        (Join-Path $ToolkitRoot 'scripts'),
+        (Join-Path $managedTools 'rustup'),
+        (Join-Path $managedTools 'cargo-home\bin'),
+        (Join-Path $managedTools 'zig'),
+        (Join-Path $managedTools 'wrappers'),
+        (Join-Path $managedTools 'rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\bin')
+    )
+}
+
+function Get-ToolkitPathKey {
+    param([Parameter(Mandatory = $true)][string]$Entry)
+    try {
+        return [System.IO.Path]::GetFullPath($Entry.Trim('"')).TrimEnd([char[]]@('\', '/')).ToLowerInvariant()
+    }
+    catch {
+        return $Entry.Trim('"').TrimEnd([char[]]@('\', '/')).ToLowerInvariant()
+    }
+}
+
+function Set-ToolkitPathPrefix {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolkitRoot,
+        [AllowEmptyString()][string]$PreviousToolkitRoot
+    )
+
+    $currentPathEntries = @(Get-ToolkitPathEntries -ToolkitRoot $ToolkitRoot)
+    $excludedPathKeys = @{}
+    foreach ($managedRoot in @($ToolkitRoot, $PreviousToolkitRoot)) {
+        foreach ($entry in @(Get-ToolkitPathEntries -ToolkitRoot $managedRoot)) {
+            $excludedPathKeys[(Get-ToolkitPathKey -Entry $entry)] = $true
+        }
+    }
+    $retainedPathEntries = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($entry in @($env:PATH -split ';')) {
+        if ($entry -and -not $excludedPathKeys.ContainsKey((Get-ToolkitPathKey -Entry $entry))) {
+            $retainedPathEntries.Add($entry)
+        }
+    }
+    $env:PATH = [string]::Join(';', @($currentPathEntries + $retainedPathEntries.ToArray()))
+}
+
+function Get-WindowsHostCargoConfigOverride {
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+
+    $winSysrootLib = Join-Path $ToolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc\lib'
+    $flags = @(
+        '-C', 'linker-flavor=lld-link',
+        '-C', "link-arg=/LIBPATH:$winSysrootLib",
+        '-C', 'link-arg=rpc_winshim.lib'
+    )
+    # JSON string-array syntax is also TOML array syntax, with one argument per
+    # element. ConvertTo-Json escapes backslashes and quotes in Windows paths.
+    return 'target.x86_64-pc-windows-msvc.rustflags=' +
+        (ConvertTo-Json -InputObject $flags -Compress)
+}
+
+function New-WindowsHostCargoConfigFile {
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+
+    $content = (Get-WindowsHostCargoConfigOverride -ToolkitRoot $ToolkitRoot) + [Environment]::NewLine
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) ('rpc-host-cargo-' + [guid]::NewGuid().ToString('N') + '.toml')
+    [System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding($false)))
+    return $path
 }
 
 function Get-NormalizedCargoSectionName {

@@ -68,6 +68,7 @@ if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
 . $isolationScript
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$windowsHostCargoConfig = $null
 try {
 Clear-RustBuildEnvironment
 
@@ -78,8 +79,6 @@ New-DirectoryIfMissing -Path $nativeWrapperRoot
 
 $x64WrapperPs1Path = Join-Path $nativeWrapperRoot "x64-windows-msvc-zig-cc.ps1"
 $x64WrapperCmdPath = Join-Path $nativeWrapperRoot "x64-windows-msvc-zig-cc.cmd"
-$zigExeEscaped = $zigExe -replace "'", "''"
-
 $x64WrapperPs1BodyTemplate = @'
 $filtered = New-Object 'System.Collections.Generic.List[string]'
 $skipNext = $false
@@ -104,7 +103,8 @@ foreach ($a in $args) {
     $filtered.Add($arg)
 }
 
-& '__ZIG_EXE__' cc -target __ZIG_TARGET__ @filtered
+$zigExe = Join-Path $env:RUST_PORTABLE_CROSS_ROOT 'tools\zig\zig.exe'
+& $zigExe cc -target __ZIG_TARGET__ @filtered
 exit $LASTEXITCODE
 '@
 # `zig cc -target x86_64-windows-msvc` needs MSVC's headers, which we cannot
@@ -113,14 +113,17 @@ exit $LASTEXITCODE
 # and libc that Zig bundles in full. The objects are C-ABI compatible with the
 # MSVC-ABI Rust objects, and both sides resolve the CRT to ucrtbase.dll.
 $zigCcTarget = "x86_64-windows-gnu"
-$x64WrapperPs1Body = $x64WrapperPs1BodyTemplate.
-    Replace('__ZIG_EXE__', $zigExeEscaped).
-    Replace('__ZIG_TARGET__', $zigCcTarget)
+$x64WrapperPs1Body = $x64WrapperPs1BodyTemplate.Replace('__ZIG_TARGET__', $zigCcTarget)
 Set-Content -LiteralPath $x64WrapperPs1Path -Value $x64WrapperPs1Body -Encoding ASCII
 
 $x64WrapperCmdBody = @(
     "@echo off",
-    "powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0x64-windows-msvc-zig-cc.ps1`" %*"
+    "setlocal",
+    "set `"_PS=`"",
+    "for %%I in (pwsh.exe) do set `"_PS=%%~`$PATH:I`"",
+    "if not defined _PS if exist `"%ProgramFiles%\PowerShell\7\pwsh.exe`" set `"_PS=%ProgramFiles%\PowerShell\7\pwsh.exe`"",
+    "if not defined _PS set `"_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`"",
+    "`"%_PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0x64-windows-msvc-zig-cc.ps1`" %*"
 ) -join "`r`n"
 Set-Content -LiteralPath $x64WrapperCmdPath -Value $x64WrapperCmdBody -Encoding ASCII
 
@@ -139,6 +142,7 @@ $env:PATH = "$nativeWrapperRoot;$PSScriptRoot;$wrappersRoot;$rustupBinRoot;$carg
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot $resolvedProjectPath
 Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
+$windowsHostCargoConfig = New-WindowsHostCargoConfigFile -ToolkitRoot $toolkitRoot
 # Note: +crt-static is deliberately not set. It makes rustc emit /defaultlib:libcmt,
 # MSVC's static CRT, which is not redistributable and has no DLL to import from. The
 # bundled inputs use the dynamic UCRT instead - ucrtbase.dll is an operating system
@@ -166,10 +170,10 @@ $buildProfile = if ($DebugBuild) { "debug" } else { "release" }
 Push-Location $resolvedProjectPath
 try {
     if ($DebugBuild) {
-        cargo build --target x86_64-pc-windows-msvc
+        cargo build --target x86_64-pc-windows-msvc --config $windowsHostCargoConfig
     }
     else {
-        cargo build --release --target x86_64-pc-windows-msvc
+        cargo build --release --target x86_64-pc-windows-msvc --config $windowsHostCargoConfig
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -183,5 +187,8 @@ finally {
 }
 }
 finally {
+    if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
+        Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
+    }
     Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
 }

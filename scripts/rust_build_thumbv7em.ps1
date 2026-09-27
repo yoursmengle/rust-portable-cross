@@ -51,6 +51,7 @@ function Sync-CargoConfig {
 }
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$windowsHostCargoConfig = $null
 try {
 Clear-RustBuildEnvironment
 
@@ -60,10 +61,11 @@ Clear-RustBuildEnvironment
 # scripts and proc-macros need a linker, so we still force rust-lld there.
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
+$windowsHostCargoConfig = New-WindowsHostCargoConfigFile -ToolkitRoot $toolkitRoot
 
 Sync-CargoConfig -Source $configSource -Destination $configTarget
 
-cargo build --release --target thumbv7em-none-eabihf
+cargo build --release --target thumbv7em-none-eabihf --config $windowsHostCargoConfig
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build failed for thumbv7em-none-eabihf with exit code $LASTEXITCODE."
 }
@@ -71,5 +73,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Build output: $(Join-Path (Get-Location) 'target\thumbv7em-none-eabihf\release')"
 }
 finally {
+    if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
+        Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
+    }
     Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
 }

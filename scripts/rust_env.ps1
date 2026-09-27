@@ -7,10 +7,16 @@ if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
     throw "Missing Rust target payload helper: $rustTargetPayloadScript`nRun .\scripts\rust_setup.ps1 first."
 }
 . $rustTargetPayloadScript
+$isolationScript = Join-Path $PSScriptRoot 'rust_build_isolation.ps1'
+if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
+    throw "Missing build isolation helper: $isolationScript"
+}
+. $isolationScript
 $toolsRoot = Join-Path $root "tools"
 $rustupBinRoot = Join-Path $toolsRoot "rustup"
 $cargoHome = Join-Path $toolsRoot "cargo-home"
 $rustupHome = Join-Path $toolsRoot "rustup-home"
+$previousToolkitRoot = $env:RUST_PORTABLE_CROSS_ROOT
 $zigRoot = Join-Path $toolsRoot "zig"
 $zigLocalCache = Join-Path $toolsRoot "zig-local-cache"
 $zigGlobalCache = Join-Path $toolsRoot "zig-global-cache"
@@ -62,7 +68,8 @@ $env:RUSTUP_HOME = $rustupHome
 $env:RUSTUP_TOOLCHAIN = "1.98.0-x86_64-pc-windows-msvc"
 $env:ZIG_LOCAL_CACHE_DIR = $zigLocalCache
 $env:ZIG_GLOBAL_CACHE_DIR = $zigGlobalCache
-$env:PATH = "$PSScriptRoot;$rustupBinRoot;$cargoHome\bin;$zigRoot;$wrappersRoot;$rustMsvcBin;$env:PATH"
+
+Set-ToolkitPathPrefix -ToolkitRoot $root -PreviousToolkitRoot $previousToolkitRoot
 
 foreach ($payloadDefinition in (Get-RustTargetPayloadDefinitions).Values) {
     try {

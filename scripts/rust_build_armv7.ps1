@@ -59,6 +59,7 @@ function Remove-EnvVarIfPresent {
 }
 
 $rustBuildEnvironmentSnapshot = Save-RustBuildEnvironment
+$windowsHostCargoConfig = $null
 try {
 Clear-RustBuildEnvironment
 
@@ -79,6 +80,7 @@ if (-not (Test-Path -LiteralPath $zigRanlibPath)) {
 
 Repair-CargoHostTargetConfig -ToolkitRoot $toolkitRoot -ProjectRoot (Get-Location).Path
 Initialize-WindowsHostLinkInputs -ToolkitRoot $toolkitRoot
+$windowsHostCargoConfig = New-WindowsHostCargoConfigFile -ToolkitRoot $toolkitRoot
 
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER = "arm-linux-musleabihf-gcc.cmd"
 $env:CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS = "-C link-self-contained=no"
@@ -91,7 +93,7 @@ Set-Item -Path "Env:RANLIB_armv7-unknown-linux-musleabihf" -Value "zig-ranlib.cm
 
 Sync-CargoConfig -Source $configSource -Destination $configTarget
 
-cargo build --release --target armv7-unknown-linux-musleabihf
+cargo build --release --target armv7-unknown-linux-musleabihf --config $windowsHostCargoConfig
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build failed for armv7-unknown-linux-musleabihf with exit code $LASTEXITCODE."
 }
@@ -99,5 +101,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Build output: $(Join-Path (Get-Location) 'target\armv7-unknown-linux-musleabihf\release')"
 }
 finally {
+    if ($windowsHostCargoConfig -and (Test-Path -LiteralPath $windowsHostCargoConfig)) {
+        Remove-Item -LiteralPath $windowsHostCargoConfig -Force -ErrorAction SilentlyContinue
+    }
     Restore-RustBuildEnvironment -Snapshot $rustBuildEnvironmentSnapshot
 }

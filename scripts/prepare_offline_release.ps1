@@ -170,7 +170,32 @@ function Get-RelativePath {
         [string]$ChildPath
     )
 
-    return [System.IO.Path]::GetRelativePath($BasePath, $ChildPath).Replace("\", "/")
+    $baseFull = [System.IO.Path]::GetFullPath($BasePath)
+    $childFull = [System.IO.Path]::GetFullPath($ChildPath)
+    $baseRoot = [System.IO.Path]::GetPathRoot($baseFull)
+    $childRoot = [System.IO.Path]::GetPathRoot($childFull)
+    if (-not [string]::Equals($baseRoot, $childRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $childFull.Replace('\', '/')
+    }
+
+    $separators = [char[]]@('\', '/')
+    $baseTail = $baseFull.Substring($baseRoot.Length).Trim($separators)
+    $childTail = $childFull.Substring($childRoot.Length).Trim($separators)
+    $baseParts = if ($baseTail) { @($baseTail.Split($separators, [System.StringSplitOptions]::RemoveEmptyEntries)) } else { @() }
+    $childParts = if ($childTail) { @($childTail.Split($separators, [System.StringSplitOptions]::RemoveEmptyEntries)) } else { @() }
+
+    $sharedCount = 0
+    while ($sharedCount -lt $baseParts.Count -and
+        $sharedCount -lt $childParts.Count -and
+        [string]::Equals($baseParts[$sharedCount], $childParts[$sharedCount], [System.StringComparison]::OrdinalIgnoreCase)) {
+        $sharedCount++
+    }
+
+    $relativeParts = New-Object 'System.Collections.Generic.List[string]'
+    for ($i = $sharedCount; $i -lt $baseParts.Count; $i++) { $relativeParts.Add('..') }
+    for ($i = $sharedCount; $i -lt $childParts.Count; $i++) { $relativeParts.Add($childParts[$i]) }
+    if ($relativeParts.Count -eq 0) { return '.' }
+    return [string]::Join('/', $relativeParts.ToArray())
 }
 
 function Copy-FileToDestination {
