@@ -79,6 +79,7 @@ try {
     New-TestFile -Path (Join-Path $toolkitRoot "sample_embedded\src\main.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_env.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_target_payload.ps1")
+    New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_path_boundary.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_isolation.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\finalize_offline_install.ps1")
     New-TestFile -Path (Join-Path $toolkitRoot "scripts\rust_build_x64_win_native.ps1")
@@ -176,6 +177,7 @@ exit 0
     $targetsRoot = Join-Path $distRoot "staging\targets"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_path_boundary.ps1")) -Message "core payload should contain the managed path helper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_isolation.ps1")) -Message "core payload should contain rust_build_isolation.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\build_win_link_inputs.ps1")) -Message "core payload should contain build_win_link_inputs.ps1"
     foreach ($linkInput in @("kernel32.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "dbghelp.lib", "msvcrt.lib", "rpc_winshim.lib")) {

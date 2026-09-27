@@ -1,4 +1,9 @@
 Set-StrictMode -Version Latest
+$pathBoundaryScript = Join-Path $PSScriptRoot 'rust_path_boundary.ps1'
+if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
+    throw "Missing managed path helper: $pathBoundaryScript"
+}
+. $pathBoundaryScript
 
 # Rust target payload definitions are deliberately data-only. Callers choose the
 # managed rustc and environment; this file never downloads or mutates toolchain state.
@@ -115,12 +120,14 @@ function Test-RustTargetPayload {
     $manifestEntries = New-Object 'System.Collections.Generic.List[string]'
 
     $resolvedLibdir = [System.IO.Path]::GetFullPath($Libdir)
+    $targetRoot = Split-Path -Parent $resolvedLibdir
+    $rustlibRoot = Split-Path -Parent $targetRoot
+    $toolchainRoot = Split-Path -Parent (Split-Path -Parent $rustlibRoot)
     if (-not (Test-Path -LiteralPath $resolvedLibdir -PathType Container)) {
         $missing.Add("target libdir: $resolvedLibdir")
     }
 
     if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
-        $rustlibRoot = Split-Path -Parent (Split-Path -Parent $resolvedLibdir)
         $ManifestPath = Join-Path $rustlibRoot ("manifest-rust-std-{0}" -f $TargetTriple)
     }
 
@@ -144,14 +151,22 @@ function Test-RustTargetPayload {
             }
 
             $manifestEntries.Add($entry)
-            $marker = "lib/rustlib/$TargetTriple/"
+            $marker = "lib/rustlib/$TargetTriple/lib/"
             if (-not $entry.StartsWith($marker, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $invalid.Add("manifest path outside target: $entry")
                 continue
             }
 
-            $relativeToTarget = $entry.Substring($marker.Length) -replace '/', '\'
-            $candidate = Join-Path (Split-Path -Parent $resolvedLibdir) $relativeToTarget
+            try {
+                $candidate = Resolve-ManagedRelativePath -Root $toolchainRoot -RelativePath $entry
+                if (-not (Test-ManagedPathInsideRoot -Root $resolvedLibdir -Path $candidate)) {
+                    throw "path outside target libdir"
+                }
+            }
+            catch {
+                $invalid.Add("unsafe manifest path: $entry ($($_.Exception.Message))")
+                continue
+            }
             if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
                 $missing.Add($entry)
             }

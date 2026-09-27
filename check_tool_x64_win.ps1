@@ -22,6 +22,11 @@ trap {
 # from outside the toolkit root.
 
 $repoRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSCommandPath)).Path
+$pathBoundaryScript = Join-Path $repoRoot 'scripts\rust_path_boundary.ps1'
+if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
+    throw "Missing managed path helper: $pathBoundaryScript"
+}
+. $pathBoundaryScript
 $toolsRoot = Join-Path $repoRoot "tools"
 $winSysroot = Join-Path $toolsRoot "sysroot\x86_64-pc-windows-msvc"
 $winSysrootLib = Join-Path $winSysroot "lib"
@@ -52,7 +57,17 @@ function Write-Pass {
 function Test-InsideToolkit {
     param([Parameter(Mandatory = $true)][string]$Path)
     $full = [System.IO.Path]::GetFullPath($Path)
-    return $full.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)
+    if (-not (Test-ManagedPathInsideRoot -Root $repoRoot -Path $full)) { return $false }
+    $rootFull = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\', '/')
+    $relative = $full.Substring($rootFull.Length).TrimStart('\', '/')
+    if (-not $relative) { return $true }
+    try {
+        $null = Resolve-ManagedRelativePath -Root $repoRoot -RelativePath $relative
+        return $true
+    }
+    catch {
+        return $false
+    }
 }
 
 function Get-ExpectedToolkitSource {

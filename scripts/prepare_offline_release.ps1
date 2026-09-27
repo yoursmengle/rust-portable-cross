@@ -80,9 +80,17 @@ function Ensure-Directory {
 function Remove-ManagedPath {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$ManagedRoot
     )
 
+    if (-not (Test-ManagedPathInsideRoot -Root $ManagedRoot -Path $Path) -or
+        [string]::Equals([System.IO.Path]::GetFullPath($ManagedRoot).TrimEnd('\', '/'), [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a path outside the managed output root: $Path"
+    }
+    $relative = Get-RelativePath -BasePath $ManagedRoot -ChildPath $Path
+    $null = Resolve-ManagedRelativePath -Root $ManagedRoot -RelativePath $relative
     if (Test-Path -LiteralPath $Path) {
         $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue
         foreach ($file in $files) {
@@ -137,6 +145,7 @@ function Get-OfflineReleasePaths {
     if ([string]::IsNullOrWhiteSpace($resolvedToolkitRoot)) {
         throw "Unable to resolve toolkit root."
     }
+    $resolvedToolkitRoot = Assert-ManagedRootIsOrdinary -Path $resolvedToolkitRoot
 
     $resolvedOutputRoot = if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
         Join-Path $resolvedToolkitRoot "dist"
@@ -145,7 +154,11 @@ function Get-OfflineReleasePaths {
         $OutputRoot
     }
 
-    $stagingRoot = Join-Path $resolvedOutputRoot "staging"
+    $resolvedOutputRoot = Assert-ManagedRootIsOrdinary -Path $resolvedOutputRoot
+    if (Test-ManagedPathInsideRoot -Root $resolvedOutputRoot -Path $resolvedToolkitRoot) {
+        throw "OutputRoot cannot be the toolkit root or its ancestor: $resolvedOutputRoot"
+    }
+    $stagingRoot = Resolve-ManagedRelativePath -Root $resolvedOutputRoot -RelativePath 'staging'
     $coreRoot = Join-Path $stagingRoot "core"
     $targetsRoot = Join-Path $stagingRoot "targets"
 
@@ -207,6 +220,12 @@ function Copy-FileToDestination {
         [string]$DestinationPath,
 
         [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationRoot,
+
+        [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
         [System.Collections.Generic.List[string]]$RecordedFiles,
 
@@ -214,6 +233,10 @@ function Copy-FileToDestination {
         [string]$InstallRelativePath
     )
 
+    $sourceRelative = Get-RelativePath -BasePath $SourceRoot -ChildPath $SourcePath
+    $destinationRelative = Get-RelativePath -BasePath $DestinationRoot -ChildPath $DestinationPath
+    $null = Resolve-ManagedRelativePath -Root $SourceRoot -RelativePath $sourceRelative -AllowInternalFileLink
+    $null = Resolve-ManagedRelativePath -Root $DestinationRoot -RelativePath $destinationRelative
     Ensure-Directory -Path (Split-Path -Parent $DestinationPath)
     Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
     $RecordedFiles.Add($InstallRelativePath.Replace("\", "/"))
@@ -235,7 +258,7 @@ function Copy-RelativeEntry {
         [System.Collections.Generic.List[string]]$RecordedFiles
     )
 
-    $sourcePath = Join-Path $SourceRoot $RelativePath
+    $sourcePath = Resolve-ManagedRelativePath -Root $SourceRoot -RelativePath $RelativePath -AllowInternalFileLink
     if (-not (Test-Path -LiteralPath $sourcePath)) {
         throw "Required path is missing: $sourcePath"
     }
@@ -246,14 +269,14 @@ function Copy-RelativeEntry {
         foreach ($file in $files) {
             $installRelativePath = Get-RelativePath -BasePath $SourceRoot -ChildPath $file.FullName
             $destinationPath = Join-Path $DestinationRoot $installRelativePath
-            Copy-FileToDestination -SourcePath $file.FullName -DestinationPath $destinationPath -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
+            Copy-FileToDestination -SourcePath $file.FullName -DestinationPath $destinationPath -SourceRoot $SourceRoot -DestinationRoot $DestinationRoot -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
         }
         return
     }
 
     $relativeInstallPath = $RelativePath.Replace("\", "/")
     $targetPath = Join-Path $DestinationRoot $RelativePath
-    Copy-FileToDestination -SourcePath $sourcePath -DestinationPath $targetPath -RecordedFiles $RecordedFiles -InstallRelativePath $relativeInstallPath
+    Copy-FileToDestination -SourcePath $sourcePath -DestinationPath $targetPath -SourceRoot $SourceRoot -DestinationRoot $DestinationRoot -RecordedFiles $RecordedFiles -InstallRelativePath $relativeInstallPath
 }
 
 function Copy-RelativeGlobEntries {
@@ -283,7 +306,7 @@ function Copy-RelativeGlobEntries {
     foreach ($matchedFile in $matchedFiles) {
         $installRelativePath = Get-RelativePath -BasePath $SourceRoot -ChildPath $matchedFile.FullName
         $destinationPath = Join-Path $DestinationRoot ($installRelativePath.Replace("/", "\\"))
-        Copy-FileToDestination -SourcePath $matchedFile.FullName -DestinationPath $destinationPath -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
+        Copy-FileToDestination -SourcePath $matchedFile.FullName -DestinationPath $destinationPath -SourceRoot $SourceRoot -DestinationRoot $DestinationRoot -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
     }
 }
 
@@ -337,7 +360,7 @@ function Copy-HostToolchainCore {
 
         $installRelativePath = "tools/rustup-home/toolchains/$script:HostToolchain/$normalizedRelativePath"
         $destinationPath = Join-Path $Paths.CoreRoot ($installRelativePath.Replace("/", "\"))
-        Copy-FileToDestination -SourcePath $file.FullName -DestinationPath $destinationPath -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
+        Copy-FileToDestination -SourcePath $file.FullName -DestinationPath $destinationPath -SourceRoot $Paths.ToolkitRoot -DestinationRoot $Paths.CoreRoot -RecordedFiles $RecordedFiles -InstallRelativePath $installRelativePath
     }
 }
 
@@ -601,6 +624,7 @@ function Invoke-PrepareOfflineRelease {
     foreach ($requiredPath in @(
         (Join-Path $paths.ToolkitRoot "scripts\rust_env.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_target_payload.ps1"),
+        (Join-Path $paths.ToolkitRoot "scripts\rust_path_boundary.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_isolation.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\finalize_offline_install.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
@@ -626,7 +650,7 @@ function Invoke-PrepareOfflineRelease {
     Assert-WindowsSelfContainment -Paths $paths
 
     Write-Step "Refreshing offline release staging under $($paths.StagingRoot)"
-    Remove-ManagedPath -Path $paths.StagingRoot
+    Remove-ManagedPath -Path $paths.StagingRoot -ManagedRoot $paths.OutputRoot
     Ensure-Directory -Path $paths.OutputRoot
     Ensure-Directory -Path $paths.CoreRoot
     Ensure-Directory -Path $paths.TargetsRoot
@@ -647,6 +671,7 @@ function Invoke-PrepareOfflineRelease {
         "config",
         "scripts/rust_env.ps1",
         "scripts/rust_target_payload.ps1",
+        "scripts/rust_path_boundary.ps1",
         "scripts/rust_build_isolation.ps1",
         "scripts/finalize_offline_install.ps1",
         "scripts/rust_build_x64_win_native.ps1",
@@ -701,7 +726,7 @@ function Invoke-PrepareOfflineRelease {
     Copy-HostToolchainCore -Paths $paths -RecordedFiles $coreFiles
 
     $readmeTargetPath = Join-Path $paths.CoreRoot "docs\README-offline.md"
-    Copy-FileToDestination -SourcePath $paths.ReadmeSourcePath -DestinationPath $readmeTargetPath -RecordedFiles $coreFiles -InstallRelativePath "docs/README-offline.md"
+    Copy-FileToDestination -SourcePath $paths.ReadmeSourcePath -DestinationPath $readmeTargetPath -SourceRoot $paths.ToolkitRoot -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles -InstallRelativePath "docs/README-offline.md"
 
     $activationTargetPath = Join-Path $paths.CoreRoot "Activate Rust Portable Cross.ps1"
     New-ActivationScript -DestinationPath $activationTargetPath

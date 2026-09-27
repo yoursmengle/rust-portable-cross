@@ -212,6 +212,83 @@ function Get-InstallLayout {
     return Get-Content -LiteralPath $layoutPath -Raw | ConvertFrom-Json
 }
 
+function Test-ComponentOwnedPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ComponentName,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    $triple = switch ($ComponentName) {
+        'armv7' { 'armv7-unknown-linux-musleabihf' }
+        'aarch64' { 'aarch64-unknown-linux-musl' }
+        'thumbv7em' { 'thumbv7em-none-eabihf' }
+        default { return $false }
+    }
+    $prefix = "tools/rustup-home/toolchains/$script:HostToolchain/lib/rustlib/"
+    $exact = @(
+        "scripts/rust_build_$ComponentName.ps1",
+        "${prefix}manifest-rust-std-$triple"
+    )
+    if ($ComponentName -eq 'armv7') { $exact += @('tools/wrappers/arm-linux-musleabihf-gcc.cmd', 'tools/wrappers/arm-linux-musleabihf-gcc.ps1') }
+    if ($ComponentName -eq 'aarch64') { $exact += @('tools/wrappers/aarch64-linux-musl-gcc.cmd', 'tools/wrappers/aarch64-linux-musl-gcc.ps1') }
+    if ($exact -contains $RelativePath) { return $true }
+    return $RelativePath.StartsWith("${prefix}${triple}/", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-InstallLayoutPreflight {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][object]$Layout,
+        [string[]]$SelectedComponents
+    )
+
+    if ($null -eq $Layout.targets -or $null -eq $Layout.componentFiles) {
+        throw 'Install layout lacks targets or componentFiles.'
+    }
+    $knownTriples = @{
+        armv7 = 'armv7-unknown-linux-musleabihf'
+        aarch64 = 'aarch64-unknown-linux-musl'
+        thumbv7em = 'thumbv7em-none-eabihf'
+    }
+    $targetNames = @($Layout.targets.PSObject.Properties | ForEach-Object { [string]$_.Name })
+    $componentNames = @($Layout.componentFiles.PSObject.Properties | ForEach-Object { [string]$_.Name })
+    if ($componentNames -notcontains 'core') { throw 'Install layout lacks the core component.' }
+    foreach ($name in $targetNames) {
+        if (-not $knownTriples.ContainsKey($name) -or
+            [string]$Layout.targets.$name.triple -ne $knownTriples[$name]) {
+            throw "Unknown or mismatched install target: $name"
+        }
+    }
+    foreach ($name in $SelectedComponents) {
+        if ($targetNames -notcontains $name -or $componentNames -notcontains $name) {
+            throw "Unknown selected component: $name"
+        }
+    }
+
+    $removalPaths = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($component in $Layout.componentFiles.PSObject.Properties) {
+        $name = [string]$component.Name
+        if ($name -ne 'core' -and ($targetNames -notcontains $name -or -not $knownTriples.ContainsKey($name))) {
+            throw "Unknown layout component: $name"
+        }
+        foreach ($value in @($component.Value)) {
+            $relative = [string]$value
+            $normalized = $relative.Replace('\', '/')
+            if ($name -ne 'core' -and -not (Test-ComponentOwnedPath -ComponentName $name -RelativePath $normalized)) {
+                throw "Component $name lists a file outside its managed payload: $relative"
+            }
+            $path = Resolve-ManagedRelativePath -Root $InstallRoot -RelativePath $relative -AllowInternalFileLink:($name -eq 'core')
+            if (Test-Path -LiteralPath $path -PathType Container) {
+                throw "Install layout lists a directory as a file: $relative"
+            }
+            if ($name -ne 'core' -and $SelectedComponents -notcontains $name) {
+                $removalPaths.Add($path)
+            }
+        }
+    }
+    return $removalPaths.ToArray()
+}
+
 function Set-RustupSettings {
     param(
         [Parameter(Mandatory = $true)]
@@ -270,6 +347,9 @@ function Remove-EmptyParentDirectories {
 
     $current = $StartDirectory
     while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (-not (Test-ManagedPathInsideRoot -Root $StopDirectory -Path $current)) {
+            throw "Parent cleanup left the install root: $current"
+        }
         if ($current.TrimEnd('\') -eq $StopDirectory.TrimEnd('\')) {
             break
         }
@@ -293,28 +373,13 @@ function Remove-UnselectedComponentFiles {
         [Parameter(Mandatory = $true)]
         [string]$InstallRoot,
 
-        [Parameter(Mandatory = $true)]
-        [object]$Layout,
-
-        [string[]]$SelectedComponents
+        [string[]]$ValidatedRemovalPaths
     )
 
-    foreach ($componentProperty in $Layout.componentFiles.PSObject.Properties) {
-        $componentName = [string]$componentProperty.Name
-        if ($componentName -eq "core") {
-            continue
-        }
-
-        if ($SelectedComponents -contains $componentName) {
-            continue
-        }
-
-        foreach ($relativePath in $componentProperty.Value) {
-            $targetPath = Join-Path $InstallRoot ($relativePath -replace "/", "\")
-            if (Test-Path -LiteralPath $targetPath) {
-                Remove-Item -LiteralPath $targetPath -Force
-                Remove-EmptyParentDirectories -StartDirectory (Split-Path -Parent $targetPath) -StopDirectory $InstallRoot
-            }
+    foreach ($targetPath in $ValidatedRemovalPaths) {
+        if (Test-Path -LiteralPath $targetPath -PathType Leaf) {
+            Remove-Item -LiteralPath $targetPath -Force
+            Remove-EmptyParentDirectories -StartDirectory (Split-Path -Parent $targetPath) -StopDirectory $InstallRoot
         }
     }
 }
@@ -405,7 +470,7 @@ function Test-OfflineInstall {
 
     foreach ($componentName in $SelectedComponents) {
         foreach ($relativePath in $Layout.componentFiles.$componentName) {
-            $targetPath = Join-Path $InstallRoot ($relativePath -replace "/", "\")
+            $targetPath = Resolve-ManagedRelativePath -Root $InstallRoot -RelativePath ([string]$relativePath)
             Assert-PathExists -Path $targetPath -Message "A selected component payload is missing."
         }
     }
@@ -480,10 +545,11 @@ function Invoke-FinalizeOfflineInstall {
     $resolvedInstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
     $layout = Get-InstallLayout -InstallRoot $resolvedInstallRoot
     $selectedComponentList = Get-SelectedComponentList -SelectedComponents $SelectedComponents
+    $validatedRemovalPaths = @(Assert-InstallLayoutPreflight -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList)
 
     Ensure-LocalCacheDirectories -InstallRoot $resolvedInstallRoot
     Repair-InstalledCargoHostConfig -InstallRoot $resolvedInstallRoot
-    Remove-UnselectedComponentFiles -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
+    Remove-UnselectedComponentFiles -InstallRoot $resolvedInstallRoot -ValidatedRemovalPaths $validatedRemovalPaths
     Set-RustupSettings -InstallRoot $resolvedInstallRoot
     Set-ToolchainComponentsFile -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList
     New-InstallManifest -InstallRoot $resolvedInstallRoot -Layout $layout -SelectedComponents $selectedComponentList -InstallScope $InstallScope

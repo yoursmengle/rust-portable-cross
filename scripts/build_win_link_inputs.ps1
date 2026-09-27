@@ -20,6 +20,12 @@ if ([string]::IsNullOrWhiteSpace($ToolkitRoot)) {
     $ToolkitRoot = Split-Path -Parent $PSScriptRoot
 }
 $ToolkitRoot = (Resolve-Path -LiteralPath $ToolkitRoot).Path
+$pathBoundaryScript = Join-Path $PSScriptRoot 'rust_path_boundary.ps1'
+if (-not (Test-Path -LiteralPath $pathBoundaryScript -PathType Leaf)) {
+    throw "Missing managed path helper: $pathBoundaryScript"
+}
+. $pathBoundaryScript
+$ToolkitRoot = Assert-ManagedRootIsOrdinary -Path $ToolkitRoot
 
 $script:Triple = "$Arch-pc-windows-msvc"
 $script:DllToolMachine = "i386:x86-64"
@@ -28,9 +34,9 @@ $script:DefArchMacro = "DEF_X64"
 $zigExe = Join-Path $ToolkitRoot "tools\zig\zig.exe"
 $mingwRoot = Join-Path $ToolkitRoot "tools\zig\lib\libc\mingw"
 $defIncludeRoot = Join-Path $mingwRoot "def-include"
-$sysrootRoot = Join-Path $ToolkitRoot "tools\sysroot\$script:Triple"
-$libRoot = Join-Path $sysrootRoot "lib"
-$workRoot = Join-Path $sysrootRoot ".work"
+$sysrootRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple"
+$libRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple/lib"
+$workRoot = Resolve-ManagedRelativePath -Root $ToolkitRoot -RelativePath "tools/sysroot/$script:Triple/.work"
 
 if (-not (Test-Path -LiteralPath $zigExe -PathType Leaf)) {
     throw "Missing bundled Zig compiler: $zigExe`nThe Windows link inputs are generated from assets under tools\zig. Run .\scripts\rust_setup.ps1 first."
@@ -125,10 +131,11 @@ function New-DirectoryIfMissing {
 function Get-RelativeToToolkit {
     param([Parameter(Mandatory = $true)][string]$Path)
     $full = [System.IO.Path]::GetFullPath($Path)
-    if ($full.StartsWith($ToolkitRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $full.Substring($ToolkitRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+    if (-not (Test-ManagedPathInsideRoot -Root $ToolkitRoot -Path $full)) {
+        throw "Sysroot provenance source is outside the toolkit: $full"
     }
-    return $full
+    $rootFull = [System.IO.Path]::GetFullPath($ToolkitRoot).TrimEnd('\', '/')
+    return $full.Substring($rootFull.Length).TrimStart('\', '/') -replace '\\', '/'
 }
 
 function Add-Provenance {
