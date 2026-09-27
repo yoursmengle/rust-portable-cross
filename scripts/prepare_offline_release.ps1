@@ -676,6 +676,7 @@ function Invoke-PrepareOfflineRelease {
         (Join-Path $paths.ToolkitRoot "scripts\rust_build_x64_win_native.ps1"),
         (Join-Path $paths.ToolkitRoot "scripts\build_win_link_inputs.ps1"),
         (Join-Path $paths.ToolkitRoot "test\fixtures\win_selfcontained\Cargo.toml"),
+        (Join-Path $paths.ToolkitRoot "test\fixtures\release_smoke\Cargo.toml"),
         (Join-Path $paths.ToolkitRoot "check_tool_armv7.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_aarch64.ps1"),
         (Join-Path $paths.ToolkitRoot "check_tool_x64_win.ps1"),
@@ -728,13 +729,22 @@ function Invoke-PrepareOfflineRelease {
         # The Windows link inputs and the fixture the self-containment check
         # builds. Both ship in core so every installation can build for
         # x86_64-pc-windows-msvc, and verify that it did so without host tooling.
-        "tools/sysroot",
+        # U07 retains the previous published sysroot beside the active one for
+        # crash recovery. Only the active directory belongs in a customer EXE.
+        "tools/sysroot/x86_64-pc-windows-msvc",
         "test/fixtures/win_selfcontained/.gitignore",
         "test/fixtures/win_selfcontained/Cargo.lock",
         "test/fixtures/win_selfcontained/Cargo.toml",
         "test/fixtures/win_selfcontained/build.rs",
         "test/fixtures/win_selfcontained/csrc",
         "test/fixtures/win_selfcontained/src",
+        "test/fixtures/release_smoke/.gitignore",
+        "test/fixtures/release_smoke/Cargo.lock",
+        "test/fixtures/release_smoke/Cargo.toml",
+        "test/fixtures/release_smoke/build.rs",
+        "test/fixtures/release_smoke/src",
+        "test/fixtures/release_smoke/macro/Cargo.toml",
+        "test/fixtures/release_smoke/macro/src",
         "sample/.cargo",
         "sample/.gitignore",
         "sample/Cargo.lock",

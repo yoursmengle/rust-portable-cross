@@ -14,6 +14,7 @@ $StagingDir = Join-Path $RepoRoot "dist\staging"
 $InstallerDir = Join-Path $RepoRoot "dist\installer"
 $PrepareScript = Join-Path $RepoRoot "scripts\prepare_offline_release.ps1"
 . (Join-Path $RepoRoot 'scripts\release_publish.ps1')
+. (Join-Path $RepoRoot 'scripts\release_validation.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -54,6 +55,14 @@ function Copy-BuiltInstallerArtifact {
     $destinationPath = Join-Path $exportDir ([IO.Path]::GetFileName($InstallerPath))
     Copy-Item -LiteralPath $InstallerPath -Destination $destinationPath -Force
     return $destinationPath
+}
+
+function Assert-InstallerOutput {
+    param([string]$InstallerPath)
+    if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
+        throw "Installer compilation reported success but expected output not found: $InstallerPath"
+    }
+    return $InstallerPath
 }
 
 function Get-VersionFromGitTag {
@@ -153,6 +162,10 @@ if (-not $SkipStaging) {
     }
 }
 
+$ValidationRoot = Join-Path $RepoRoot 'dist\release-validation'
+Write-Step "Verifying staged release and isolated install view"
+Invoke-StagedInstallValidation -StagingRoot $StagingDir -Version $Version -WorkRoot $ValidationRoot
+
 $Iscc = Resolve-IsccPath -Override $IsccPath
 Write-Step "Using Inno Setup compiler: $Iscc"
 
@@ -168,16 +181,17 @@ if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
 }
 
 $ExpectedExe = Join-Path $InstallerDir "rust-portable-cross-offline-$Version.exe"
-if (Test-Path -LiteralPath $ExpectedExe) {
-    $CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
-    Write-Step "Installer built successfully:"
-    Write-Host "    $ExpectedExe" -ForegroundColor Green
-    Write-Host "    Copied to $CopiedExe" -ForegroundColor Green
+$null = Assert-InstallerOutput -InstallerPath $ExpectedExe
 
-    Write-Step "Publishing split parts to web assets directory"
-    $WebDir = Split-FileAndPublish -InstallerPath $CopiedExe -Version $Version -RepoPath $RepoRoot
-    Write-Host "    Parts and manifest written to $WebDir" -ForegroundColor Green
-} else {
-    Write-Warning "Installer compilation reported success but expected output not found: $ExpectedExe"
-}
+Write-Step "Installing and verifying the compiled EXE in a disposable location"
+Invoke-DisposableInstallerValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot
+
+$CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
+Write-Step "Installer built successfully:"
+Write-Host "    $ExpectedExe" -ForegroundColor Green
+Write-Host "    Copied to $CopiedExe" -ForegroundColor Green
+
+Write-Step "Publishing split parts to web assets directory"
+$WebDir = Split-FileAndPublish -InstallerPath $CopiedExe -Version $Version -RepoPath $RepoRoot
+Write-Host "    Parts and manifest written to $WebDir" -ForegroundColor Green
 }

@@ -65,7 +65,19 @@ function SendMessageTimeout(hWnd: LongInt; Msg: LongInt; wParam: LongInt;
   external 'SendMessageTimeoutA@user32.dll stdcall';
 
 function GetDefaultInstallDir(Param: String): String;
+var
+  ReleaseValidationDir: String;
 begin
+  // Internal release gate: DisableDirPage=yes ignores /DIR, so the compiled
+  // EXE needs a private process-environment override for disposable installs.
+  ReleaseValidationDir := GetEnv('RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR');
+  if (Length(ReleaseValidationDir) >= 3) and
+     (ReleaseValidationDir[2] = ':') and
+     (ReleaseValidationDir[3] = '\') then
+  begin
+    Result := ReleaseValidationDir;
+    Exit;
+  end;
   if DirExists('D:\') then
     Result := 'D:\rust-portable-cross'
   else

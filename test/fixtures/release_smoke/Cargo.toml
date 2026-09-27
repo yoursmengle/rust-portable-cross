@@ -1,0 +1,8 @@
+[package]
+name = "release_smoke"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+release_smoke_macro = { path = "macro" }

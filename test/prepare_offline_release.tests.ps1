@@ -127,6 +127,13 @@ exit 0
     New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\build.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\csrc\probe.c")
     New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\win_selfcontained\src\main.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\.gitignore")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\Cargo.lock")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\build.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\src\main.rs")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\macro\Cargo.toml")
+    New-TestFile -Path (Join-Path $toolkitRoot "test\fixtures\release_smoke\macro\src\lib.rs")
     New-TestFile -Path (Join-Path $toolkitRoot "check_tool_thumbv7em.ps1")
 
     # Development-time gate files: present in the source tree, and expected to stay
@@ -182,12 +189,14 @@ exit 0
     }
 
     function Get-ManagedRustCommit { param([string]$ToolkitRoot) return '88d9e12ae178fab0fb5cc050a94da85685d449ea' }
+    New-TestFile -Path (Join-Path $toolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc.previous\lib\stale.lib') -Content 'old recovery state'
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 
     $coreRoot = Join-Path $distRoot "staging\core"
     $targetsRoot = Join-Path $distRoot "staging\targets"
 
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_env.ps1")) -Message "core payload should contain rust_env.ps1"
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $coreRoot 'tools\sysroot\x86_64-pc-windows-msvc.previous'))) -Message 'core payload must exclude the prior sysroot recovery copy'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_path_boundary.ps1")) -Message "core payload should contain the managed path helper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_transaction.ps1")) -Message "core payload should contain the transaction helper"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_payload_integrity.ps1")) -Message "core payload should contain the integrity helper"
@@ -202,6 +211,7 @@ exit 0
     Assert-True `
         -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "test\fixtures\win_selfcontained\src\main.rs")) `
         -Message "core payload should contain the self-containment fixture"
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "test\fixtures\release_smoke\macro\src\lib.rs")) -Message "core payload should contain the local proc-macro smoke fixture"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\finalize_offline_install.ps1")) -Message "core payload should contain finalize_offline_install.ps1"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "scripts\rust_build_x64_win_native.ps1")) -Message "core payload should contain the native x64 helper script"
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $coreRoot "docs\README-offline.md")) -Message "core payload should contain the customer README"
