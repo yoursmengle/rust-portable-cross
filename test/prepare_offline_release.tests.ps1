@@ -189,6 +189,9 @@ exit 0
     }
 
     function Get-ManagedRustCommit { param([string]$ToolkitRoot) return '88d9e12ae178fab0fb5cc050a94da85685d449ea' }
+    # This synthetic staging fixture has placeholder Cargo files; cache selection
+    # is exercised by offline_sample_cache.tests.ps1 and the installed release gate.
+    function Copy-OfflineSampleCache { param($Paths, $RecordedFiles) }
     New-TestFile -Path (Join-Path $toolkitRoot 'tools\sysroot\x86_64-pc-windows-msvc.previous\lib\stale.lib') -Content 'old recovery state'
     Invoke-PrepareOfflineRelease -ToolkitRoot $toolkitRoot -OutputRoot $distRoot -Version "1.2.3" | Out-Null
 

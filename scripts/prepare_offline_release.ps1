@@ -771,6 +771,8 @@ function Invoke-PrepareOfflineRelease {
         Copy-RelativeEntry -SourceRoot $paths.ToolkitRoot -RelativePath $relativePath -DestinationRoot $paths.CoreRoot -RecordedFiles $coreFiles
     }
 
+    Copy-OfflineSampleCache -Paths $paths -RecordedFiles $coreFiles
+
     foreach ($relativePath in @(
         "tools/wrappers/zig-ar.cmd",
         "tools/wrappers/zig-ar.ps1",
@@ -846,6 +848,130 @@ function Invoke-PrepareOfflineRelease {
             Exit-ToolkitOperation -Handle $toolkitLock
         }
     }
+}
+
+function Get-SampleRegistryPackages {
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+
+    $lockPath = Join-Path $ToolkitRoot 'sample\Cargo.lock'
+    $lockText = [System.IO.File]::ReadAllText($lockPath)
+    $packages = New-Object 'System.Collections.Generic.List[object]'
+    $blocks = [regex]::Matches($lockText, '(?ms)^\[\[package\]\]\r?\n(.*?)(?=^\[\[package\]\]|\z)')
+    foreach ($block in $blocks) {
+        $fields = @{}
+        foreach ($name in @('name', 'version', 'source', 'checksum')) {
+            $match = [regex]::Match($block.Groups[1].Value, "(?m)^$name\s*=\s*`"([^`"]+)`"\s*$")
+            if ($match.Success) { $fields[$name] = $match.Groups[1].Value }
+        }
+        if (-not $fields.ContainsKey('source')) { continue }
+        if ($fields.source -ne 'registry+https://github.com/rust-lang/crates.io-index' -or
+            -not $fields.ContainsKey('name') -or -not $fields.ContainsKey('version') -or
+            -not $fields.ContainsKey('checksum') -or $fields.checksum -notmatch '^[a-fA-F0-9]{64}$') {
+            throw "Unsupported or incomplete sample Cargo.lock package: $($fields.name) $($fields.version)"
+        }
+        $packages.Add($fields)
+    }
+    if ($packages.Count -eq 0) { throw 'Sample Cargo.lock contains no registry packages.' }
+    return $packages.ToArray()
+}
+
+function Get-CratesIoSparseIndexPath {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    if ($Name.Length -eq 1) { return "1/$Name" }
+    if ($Name.Length -eq 2) { return "2/$Name" }
+    if ($Name.Length -eq 3) { return "3/$($Name.Substring(0, 1))/$Name" }
+    return "$($Name.Substring(0, 2))/$($Name.Substring(2, 2))/$Name"
+}
+
+function Assert-LockedSampleArchive {
+    param([Parameter(Mandatory = $true)][hashtable]$Package,
+          [Parameter(Mandatory = $true)][string]$ArchivePath)
+    $key = "$($Package.name)@$($Package.version)"
+    if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
+        throw "Missing locked sample crate $key ($ArchivePath). Run cargo fetch --locked for sample/Cargo.toml."
+    }
+    $actualHash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $Package.checksum.ToLowerInvariant()) {
+        throw "Locked sample crate checksum mismatch: $key (expected $($Package.checksum), got $actualHash)"
+    }
+    return $actualHash
+}
+
+function Copy-OfflineSampleCache {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Paths,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$RecordedFiles
+    )
+
+    $packages = @(Get-SampleRegistryPackages -ToolkitRoot $Paths.ToolkitRoot)
+    $registry = 'index.crates.io-1949cf8c6b5b557f'
+    $cargoHome = Join-Path $Paths.ToolkitRoot 'tools\cargo-home'
+    $cargoExe = Join-Path $cargoHome 'bin\cargo.exe'
+    $snapshot = @{}
+    try {
+        Set-ScopedEnvironmentVariable -Name CARGO_HOME -Value $cargoHome -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name RUSTUP_HOME -Value (Join-Path $Paths.ToolkitRoot 'tools\rustup-home') -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name RUSTUP_TOOLCHAIN -Value $script:HostToolchain -Snapshot $snapshot
+        Set-ScopedEnvironmentVariable -Name CARGO_NET_OFFLINE -Value 'true' -Snapshot $snapshot
+        $metadataText = @(& $cargoExe metadata --locked --offline --format-version 1 --manifest-path (Join-Path $Paths.ToolkitRoot 'sample\Cargo.toml') 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Sample dependencies are unavailable offline; run the bundled cargo fetch --locked --manifest-path sample/Cargo.toml before release preparation: $($metadataText -join ' ')"
+        }
+        $metadata = ($metadataText -join "`n") | ConvertFrom-Json
+    }
+    finally { Restore-ScopedEnvironmentVariables -Snapshot $snapshot }
+
+    $metadataByPackage = @{}
+    foreach ($package in @($metadata.packages)) {
+        if ([string]$package.source -eq 'registry+https://github.com/rust-lang/crates.io-index') {
+            $metadataByPackage["$($package.name)@$($package.version)"] = $package
+        }
+    }
+    if ($metadataByPackage.Count -ne $packages.Count) {
+        throw "Sample lockfile/metadata registry package count differs: $($packages.Count) versus $($metadataByPackage.Count)"
+    }
+
+    $indexNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+    $manifestPackages = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($package in $packages) {
+        $key = "$($package.name)@$($package.version)"
+        if (-not $metadataByPackage.ContainsKey($key)) { throw "Sample metadata lacks locked crate $key" }
+        $archiveName = "$($package.name)-$($package.version).crate"
+        $archiveRelative = "tools/cargo-home/registry/cache/$registry/$archiveName"
+        $archivePath = Resolve-ManagedRelativePath -Root $Paths.ToolkitRoot -RelativePath $archiveRelative -AllowInternalFileLink
+        $actualHash = Assert-LockedSampleArchive -Package $package -ArchivePath $archivePath
+        $destinationPath = Join-Path $Paths.CoreRoot ($archiveRelative.Replace('/', '\'))
+        Copy-FileToDestination -SourcePath $archivePath -DestinationPath $destinationPath -SourceRoot $Paths.ToolkitRoot -DestinationRoot $Paths.CoreRoot -RecordedFiles $RecordedFiles -InstallRelativePath $archiveRelative
+        if ($indexNames.Add([string]$package.name)) {
+            $indexRelative = "tools/cargo-home/registry/index/$registry/.cache/$(Get-CratesIoSparseIndexPath -Name ([string]$package.name))"
+            $indexSource = Resolve-ManagedRelativePath -Root $Paths.ToolkitRoot -RelativePath $indexRelative -AllowInternalFileLink
+            if (-not (Test-Path -LiteralPath $indexSource -PathType Leaf)) { throw "Missing sparse index entry for locked sample crate $key" }
+            Copy-FileToDestination -SourcePath $indexSource -DestinationPath (Join-Path $Paths.CoreRoot ($indexRelative.Replace('/', '\'))) -SourceRoot $Paths.ToolkitRoot -DestinationRoot $Paths.CoreRoot -RecordedFiles $RecordedFiles -InstallRelativePath $indexRelative
+        }
+        $license = [string]$metadataByPackage[$key].license
+        if ([string]::IsNullOrWhiteSpace($license)) { $license = 'See crate archive' }
+        $manifestPackages.Add([ordered]@{
+            name = [string]$package.name
+            version = [string]$package.version
+            archive = $archiveRelative
+            sha256 = $actualHash
+            license = $license
+        })
+    }
+    $configRelative = "tools/cargo-home/registry/index/$registry/config.json"
+    $configSource = Resolve-ManagedRelativePath -Root $Paths.ToolkitRoot -RelativePath $configRelative -AllowInternalFileLink
+    if (-not (Test-Path -LiteralPath $configSource -PathType Leaf)) { throw 'Missing crates.io sparse index config.json.' }
+    Copy-FileToDestination -SourcePath $configSource -DestinationPath (Join-Path $Paths.CoreRoot ($configRelative.Replace('/', '\'))) -SourceRoot $Paths.ToolkitRoot -DestinationRoot $Paths.CoreRoot -RecordedFiles $RecordedFiles -InstallRelativePath $configRelative
+    $manifestPath = Join-Path $Paths.CoreRoot 'docs\sample-dependencies.json'
+    Ensure-Directory -Path (Split-Path -Parent $manifestPath)
+    [ordered]@{
+        formatVersion = 1
+        lockfile = 'sample/Cargo.lock'
+        registry = 'https://github.com/rust-lang/crates.io-index'
+        packages = @($manifestPackages | Sort-Object name, version)
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+    $RecordedFiles.Add('docs/sample-dependencies.json')
+    Write-Step "Bundled $($packages.Count) locked sample crates in the managed Cargo home"
 }
 
 if ($env:RUST_PORTABLE_CROSS_SKIP_OFFLINE_RELEASE_MAIN -ne "1") {

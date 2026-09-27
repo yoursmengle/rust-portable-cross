@@ -79,4 +79,5 @@ All three target build scripts are installed by the current installer.
 - One limitation: a crate whose C code genuinely requires Microsoft's own headers (rather than the
   bundled mingw-w64 headers) still needs a host MSVC installation. This shows up as a compile error
   from the C build script naming a missing Microsoft header, not as a link error.
-- This installer does not make arbitrary third-party crate downloads offline. If your project depends on crates that are not already available in your environment, dependency fetching remains your responsibility.
+- The bundled `sample` project can build offline from the exact crate versions in its `Cargo.lock`. The installed `sample-dependencies.json` manifest records dependency names, checksums, and license expressions; crate archives also carry their included license files.
+- This installer does not make arbitrary third-party crate downloads offline. If your own project needs other crates, fetch or vendor those dependencies before working disconnected.

@@ -69,7 +69,7 @@ function New-PayloadIntegrityIndex {
             $path = Resolve-ManagedRelativePath -Root $componentRoot -RelativePath ([string]$relative)
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing staged payload file: $($component.Name)/$relative" }
             $sourcePath = $path
-            if ($SourceRoot -and $relative -notin @('Activate Rust Portable Cross.ps1', 'install-layout.json')) {
+            if ($SourceRoot -and $relative -notin @('Activate Rust Portable Cross.ps1', 'install-layout.json', 'docs/sample-dependencies.json')) {
                 $sourceRelative = if ($relative -eq 'docs/README-offline.md') { 'docs/customer/README-offline.md' } else { [string]$relative }
                 $sourcePath = Resolve-ManagedRelativePath -Root $SourceRoot -RelativePath $sourceRelative -AllowInternalFileLink
                 if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Missing source payload file: $($component.Name)/$relative" }

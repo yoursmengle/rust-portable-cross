@@ -71,6 +71,32 @@ $windowsOutput = @(& $windowsExe 2>&1)
 if ($LASTEXITCODE -ne 0 -or $windowsOutput -notcontains 'SELFCONTAINED OK') {
     throw "Windows release smoke executable failed: $($windowsOutput -join [Environment]::NewLine)"
 }
+
+$sample = Join-Path $install 'sample'
+$dependencyManifest = Join-Path $install 'docs\sample-dependencies.json'
+if (-not (Test-Path -LiteralPath $dependencyManifest -PathType Leaf)) {
+    throw "Missing installed sample dependency manifest: $dependencyManifest"
+}
+$dependencies = Get-Content -LiteralPath $dependencyManifest -Raw | ConvertFrom-Json
+if ($dependencies.formatVersion -ne 1 -or @($dependencies.packages).Count -eq 0) {
+    throw 'Installed sample dependency manifest is empty or unsupported.'
+}
+foreach ($entry in @(
+    @{ Name = 'Windows'; Script = 'rust_build_x64_win_native.ps1' },
+    @{ Name = 'ARMv7'; Script = 'rust_build_armv7.ps1' },
+    @{ Name = 'AArch64'; Script = 'rust_build_aarch64.ps1' }
+)) {
+    Write-Host "Building complete installed sample for $($entry.Name) offline"
+    if ($entry.Name -eq 'Windows') {
+        & (Join-Path $install ('scripts\' + $entry.Script)) -ProjectPath $sample
+    }
+    else {
+        Push-Location -LiteralPath $sample
+        try { & (Join-Path $install ('scripts\' + $entry.Script)) }
+        finally { Pop-Location }
+    }
+    if ($LASTEXITCODE -ne 0) { throw "$($entry.Name) complete sample build failed ($LASTEXITCODE)" }
+}
 & (Join-Path $install 'sample_embedded\make_image.ps1')
 if ($LASTEXITCODE -ne 0) { throw "Embedded release smoke failed ($LASTEXITCODE)" }
 foreach ($extension in @('bin', 'hex')) {
