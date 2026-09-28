@@ -7,4 +7,4 @@ $env:https_proxy = $env:HTTPS_PROXY
 $env:all_proxy = $env:ALL_PROXY
 $env:no_proxy = $env:NO_PROXY
 
-codex --sandbox danger-full-access 
+codex --sandbox danger-full-access  --ask-for-approval never --no-daemon
