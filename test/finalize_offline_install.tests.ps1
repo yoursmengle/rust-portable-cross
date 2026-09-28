@@ -172,6 +172,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $compatRoot "tools\rustup-home\toolchains\1.98.0-x86_64-pc-windows-msvc\lib\rustlib") -Force | Out-Null
 
     $powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $nativeProbe = & $powershellExe -NoProfile -ExecutionPolicy Bypass -Command "& { `$env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN='1'; . '$PSScriptRoot\..\scripts\finalize_offline_install.ps1'; Invoke-NativeWithTimeout -FilePath '$env:WINDIR\System32\cmd.exe' -Arguments @('/c','echo','native-ok') }" 2>&1
+    if ($LASTEXITCODE -ne 0 -or @($nativeProbe) -notcontains 'native-ok') {
+        throw "Windows PowerShell native exit-code probe failed.`n$($nativeProbe -join [Environment]::NewLine)"
+    }
     $compatOutput = & $powershellExe -NoProfile -ExecutionPolicy Bypass -Command "& { Remove-Item Env:RUST_PORTABLE_CROSS_SKIP_FINALIZE_INSTALL_MAIN -ErrorAction SilentlyContinue; & '$PSScriptRoot\..\scripts\finalize_offline_install.ps1' -InstallRoot '$compatRoot' -SelectedComponents 'armv7' -InstallScope 'perUser' }" 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Windows PowerShell compatibility finalize run failed.`n$($compatOutput -join [Environment]::NewLine)"

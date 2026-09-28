@@ -49,7 +49,7 @@ Name: "{group}\使用说明"; Filename: "{app}\docs\README-offline.md"
 Name: "{group}\卸载 Rust 便携交叉编译工具包"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; StatusMsg: "正在完成离线工具链配置并校验..."; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\finalize_offline_install.ps1"" -InstallRoot ""{app}"" -InstallScope ""{code:GetInstallScope}"" -SelectedComponents ""{code:GetSelectedComponents}"" -Validate"; StatusMsg: "正在完成离线工具链配置并校验..."; Flags: runhidden waituntilterminated logoutput
 
 [Code]
 const
@@ -68,9 +68,8 @@ function GetDefaultInstallDir(Param: String): String;
 var
   ReleaseValidationDir: String;
 begin
-  // Internal release gate: DisableDirPage=yes ignores /DIR, so the compiled
-  // EXE needs a private process-environment override for disposable installs.
-  ReleaseValidationDir := GetEnv('RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR');
+  // The command line survives Setup elevation; process environment may not.
+  ReleaseValidationDir := ExpandConstant('{param:RPCValidationDir|}');
   if (Length(ReleaseValidationDir) >= 3) and
      (ReleaseValidationDir[2] = ':') and
      (ReleaseValidationDir[3] = '\') then
@@ -82,6 +81,17 @@ begin
     Result := 'D:\rust-portable-cross'
   else
     Result := 'C:\rust-portable-cross';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ReleaseValidationDir: String;
+begin
+  Result := '';
+  ReleaseValidationDir := ExpandConstant('{param:RPCValidationDir|}');
+  if (ReleaseValidationDir <> '') and
+     (IsAdminInstallMode or (CompareText(ExpandConstant('{app}'), ReleaseValidationDir) <> 0)) then
+    Result := 'Release validation requires the disposable per-user install directory.';
 end;
 
 function GetEnvRootKey(): Integer;

@@ -148,30 +148,30 @@ function Invoke-NativeWithTimeout {
         [int]$TimeoutSeconds = 30
     )
 
-    # Validation must never block the installer UI. Run the tool out-of-band,
-    # capture its output, and enforce a hard timeout (works on Windows
-    # PowerShell 5.1, which the installer uses, and on PowerShell 7+).
-    $stdoutFile = [System.IO.Path]::GetTempFileName()
-    $stderrFile = [System.IO.Path]::GetTempFileName()
+    # Start-Process without -Wait reports a blank ExitCode in Windows PowerShell 5.1.
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = $Arguments -join ' '
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
     try {
-        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -PassThru `
-            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        [void]$process.Start()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
 
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             Stop-ProcessTree -Process $process
             throw "Command timed out after ${TimeoutSeconds}s: $FilePath $($Arguments -join ' ')"
         }
-
-        # The direct process has exited and its output was redirected to files
-        # by the OS, so the files are already complete. Use a *bounded* flush
-        # wait only, never the parameterless WaitForExit(): a lingering toolchain
-        # grandchild that inherited the file handles must not be able to block us.
-        [void]$process.WaitForExit(5000)
-
-        $stdout = @()
-        $stderr = @()
-        if (Test-Path -LiteralPath $stdoutFile) { $stdout = @(Get-Content -LiteralPath $stdoutFile) }
-        if (Test-Path -LiteralPath $stderrFile) { $stderr = @(Get-Content -LiteralPath $stderrFile) }
+        if (-not [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), 5000)) {
+            throw "Command output did not close: $FilePath $($Arguments -join ' ')"
+        }
+        $stdout = @($stdoutTask.Result -split '\r?\n' | Where-Object { $_ -ne '' })
+        $stderr = @($stderrTask.Result -split '\r?\n' | Where-Object { $_ -ne '' })
 
         if ($process.ExitCode -ne 0) {
             $detail = (@($stdout) + @($stderr)) -join [Environment]::NewLine
@@ -181,7 +181,7 @@ function Invoke-NativeWithTimeout {
         return @($stdout)
     }
     finally {
-        Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
+        $process.Dispose()
     }
 }
 

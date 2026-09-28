@@ -68,7 +68,9 @@ try {
     $installedTarget = Join-Path $installed $targetFile
     New-Item -ItemType Directory -Path (Split-Path -Parent $installedTarget) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $arm $targetFile) -Destination $installedTarget
-    Assert-True (Test-PayloadIntegrityIndex -InstallRoot $installed -Layout $parsed) 'Installed payload integrity check failed.'
+    function Get-FileHash { throw 'Get-FileHash is unavailable' }
+    try { Assert-True (Test-PayloadIntegrityIndex -InstallRoot $installed -Layout $parsed) 'Installed payload integrity check failed.' }
+    finally { Remove-Item Function:Get-FileHash }
     Set-Content -LiteralPath $installedTarget -Value 'modified but nonempty' -Encoding ASCII
     Expect-Failure { Invoke-FinalizeOfflineInstall -InstallRoot $installed -SelectedComponents 'armv7' -InstallScope 'perUser' } 'target.rlib'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $installed 'tools\cargo-home'))) 'Finalizer modified files before integrity rejection.'

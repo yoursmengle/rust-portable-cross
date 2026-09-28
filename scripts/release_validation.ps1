@@ -173,17 +173,10 @@ function Invoke-DisposableInstallerValidation {
 
     try {
         Write-Host "==> Installing EXE for release validation under $install"
-        $previousValidationDir = $env:RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR
-        try {
-            $env:RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR = $install
-            $setupProcess = Start-Process -FilePath $InstallerPath -ArgumentList @(
-                '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logPath"
-            ) -WindowStyle Hidden -PassThru -Wait
-        }
-        finally {
-            if ($null -eq $previousValidationDir) { Remove-Item Env:RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR -ErrorAction SilentlyContinue }
-            else { $env:RUST_PORTABLE_CROSS_RELEASE_VALIDATION_DIR = $previousValidationDir }
-        }
+        $setupProcess = Start-Process -FilePath $InstallerPath -ArgumentList @(
+            '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER',
+            "/RPCValidationDir=`"$install`"", "/DIR=`"$install`"", "/LOG=`"$logPath`""
+        ) -WindowStyle Hidden -PassThru -Wait
         if ($setupProcess.ExitCode -ne 0) { throw "Disposable installer failed ($($setupProcess.ExitCode)). Log: $logPath" }
         if (-not (Test-Path -LiteralPath (Join-Path $install 'install-layout.json') -PathType Leaf)) {
             throw "Installer did not populate the disposable directory: $install"

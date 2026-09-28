@@ -2,6 +2,17 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'rust_path_boundary.ps1')
 
+function Get-PayloadFileHash {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 function Get-PayloadDependencyLock {
     param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
 
@@ -79,7 +90,7 @@ function New-PayloadIntegrityIndex {
                 component = [string]$component.Name
                 path = [string]$relative
                 size = [long]$file.Length
-                sha256 = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+                sha256 = Get-PayloadFileHash -Path $sourcePath
             })
         }
     }
@@ -136,7 +147,7 @@ function Test-PayloadIntegrityIndex {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing payload file: $key" }
         $file = Get-Item -LiteralPath $path
         if ([long]$file.Length -ne [long]$entry.size -or
-            -not [string]::Equals((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash, [string]$entry.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+            -not [string]::Equals((Get-PayloadFileHash -Path $path), [string]$entry.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Payload integrity mismatch: $key"
         }
     }
@@ -174,7 +185,7 @@ function Assert-WindowsLinkInputProvenance {
         }
         $path = Resolve-ManagedRelativePath -Root $libRoot -RelativePath $name
         if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
-            -not [string]::Equals((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash,
+            -not [string]::Equals((Get-PayloadFileHash -Path $path),
                 [string]$record.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Windows link input digest mismatch: $name"
         }
