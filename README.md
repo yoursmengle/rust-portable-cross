@@ -167,7 +167,9 @@ Must be **dot-sourced** so that environment variables are set in the calling ses
 . .\scripts\rust_env.ps1
 ```
 
-Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, and updates `PATH`.
+Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, `AR_armv7_*` / `RANLIB_armv7_*`, `AR_aarch64_*` / `RANLIB_aarch64_*`, and updates `PATH`.
+
+The bundled archivers are set only per target. The unsuffixed `AR` / `RANLIB` are never set: cc-rs falls back to them for every target, including the host `x86_64-pc-windows-msvc`, and the GNU-style `zig-ar` rejects the `lib.exe`-style call it makes there. Activation removes an `AR=zig-ar.cmd` / `RANLIB=zig-ranlib.cmd` left behind by an older version, and warns about any other value without changing it. Host C builds in an activated shell use cc-rs's normal compiler discovery; for a build that needs no Visual Studio, use `rust_build_x64_win_native.ps1`.
 
 ### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1` / `rust_build_thumbv7em.ps1`
 
@@ -268,8 +270,12 @@ non-zero if any of them fails, reporting every failure in one run rather than st
 
 ```powershell
 .\ci.ps1          # default lane: about 12 s, and needs no installed toolchain
-.\ci.ps1 -Full    # adds the four check_tool_*.ps1 cross builds (minutes, needs tools\)
+.\ci.ps1 -Full    # adds the four check_tool_*.ps1 cross builds and test/full/*.ps1 (minutes, needs tools\)
 ```
+
+`test/full/*.ps1` holds repository checks that need the installed toolchain and take minutes, such as
+`test/full/activated_host_cc.ps1`, which builds `sample` for the host from an activated shell. They run only
+under `-Full`, one at a time after the cross builds.
 
 The default lane runs:
 
@@ -280,7 +286,8 @@ The default lane runs:
 | `openspec-validate` | `openspec validate --all --strict` over the OpenSpec artifacts |
 
 A check whose prerequisite is missing reports `SKIP` with the reason - a skip is not a pass, and the
-verdict says how many checks did not run. Because the gate verifies the working tree rather than the
+verdict says how many checks did not run. A suite or script reports a skip by printing `SKIP: <reason>`
+and exiting with code 3. Because the gate verifies the working tree rather than the
 staged content, it warns when tracked files have unstaged changes.
 
 Individual suites can still be run directly:

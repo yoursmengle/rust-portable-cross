@@ -105,8 +105,29 @@ foreach ($mapping in $optionalWrapperMappings) {
     }
 }
 
+# The unsuffixed AR / RANLIB are deliberately never set: cc-rs falls back to them
+# for every target, including the host x86_64-pc-windows-msvc, where it calls the
+# archiver lib.exe-style (-out:<path> -nologo). zig-ar is GNU-style and rejects
+# that. Earlier activations did set them, so drop exactly those values; anything
+# else belongs to the user and is kept.
+$legacyGlobalArchivers = [ordered]@{
+    AR = "zig-ar.cmd"
+    RANLIB = "zig-ranlib.cmd"
+}
+foreach ($name in $legacyGlobalArchivers.Keys) {
+    $current = [Environment]::GetEnvironmentVariable($name, "Process")
+    if ([string]::IsNullOrEmpty($current)) {
+        continue
+    }
+    if ($current -ieq $legacyGlobalArchivers[$name]) {
+        Remove-Item -LiteralPath "Env:$name"
+    }
+    else {
+        Write-Warning "$name is set to '$current'. cc-rs uses $name as the archiver for every target without an ${name}_<target> override, including the host x86_64-pc-windows-msvc; unset it if host crates with C sources fail to archive."
+    }
+}
+
 if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-ar.cmd")) {
-    $env:AR = "zig-ar.cmd"
     $env:AR_armv7_unknown_linux_musleabihf = "zig-ar.cmd"
     $env:AR_aarch64_unknown_linux_musl = "zig-ar.cmd"
     Set-Item -Path "Env:AR_armv7-unknown-linux-musleabihf" -Value "zig-ar.cmd"
@@ -114,7 +135,6 @@ if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-ar.cmd")) {
 }
 
 if (Test-Path -LiteralPath (Join-Path $wrappersRoot "zig-ranlib.cmd")) {
-    $env:RANLIB = "zig-ranlib.cmd"
     $env:RANLIB_armv7_unknown_linux_musleabihf = "zig-ranlib.cmd"
     $env:RANLIB_aarch64_unknown_linux_musl = "zig-ranlib.cmd"
     Set-Item -Path "Env:RANLIB_armv7-unknown-linux-musleabihf" -Value "zig-ranlib.cmd"

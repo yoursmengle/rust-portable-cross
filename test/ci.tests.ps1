@@ -194,6 +194,58 @@ finally {
     Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- A suite can report itself skipped, and a skip never reads as a pass -----
+
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name "alpha.tests.ps1" -Body "exit 0"
+    Add-GateSuite -RepoPath $repo -Name "needs-toolkit.tests.ps1" -Body "Write-Host 'SKIP: toolkit is not provisioned'`nexit 3"
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-Equal -Actual $run.ExitCode -Expected 0 -Message "a skipped suite must not fail the run.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'SKIP\s+test/needs-toolkit\.tests\.ps1.*toolkit is not provisioned') -Message "a suite exiting with the skip code should report SKIP with its reason.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -notmatch 'PASS\s+test/needs-toolkit\.tests\.ps1') -Message "a skipped suite must not be reported as passed.`n$($run.Output)"
+    Assert-True -Condition ($run.Output -match 'NOT RUN') -Message "the verdict should say a skipped suite did not run.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- Full lane runs test\full\*.ps1, which the default lane never does --------
+
+$repo = New-GateRepo
+try {
+    Add-GateSuite -RepoPath $repo -Name 'alpha.tests.ps1' -Body 'exit 0'
+    foreach ($relative in @(
+        'tools/cargo-home/bin/cargo.exe',
+        'tools/cargo-home/bin/rustc.exe',
+        'tools/zig/zig.exe'
+    )) {
+        $path = Join-Path $repo $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        [IO.File]::WriteAllBytes($path, [byte[]]@())
+    }
+    New-Item -ItemType Directory -Path (Join-Path $repo 'tools/rustup-home/toolchains/1.98.0-x86_64-pc-windows-msvc') -Force | Out-Null
+    $fullRoot = Join-Path $repo 'test\full'
+    New-Item -ItemType Directory -Path $fullRoot -Force | Out-Null
+    $marker = "Add-Content -LiteralPath (Join-Path `$PSScriptRoot 'full-runs.txt') -Value `$MyInvocation.MyCommand.Name`n"
+    [IO.File]::WriteAllText((Join-Path $fullRoot 'heavy_pass.ps1'), "${marker}exit 0`n", (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText((Join-Path $fullRoot 'heavy_skip.ps1'), "${marker}Write-Host 'SKIP: no host C toolchain'`nexit 3`n", (New-Object Text.UTF8Encoding($false)))
+
+    $run = Invoke-Gate -RepoPath $repo
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $fullRoot 'full-runs.txt'))) -Message "the default lane must not run test\full checks.`n$($run.Output)"
+
+    $run = Invoke-Gate -RepoPath $repo -Arguments @('-Full')
+    Assert-Equal -Actual $run.ExitCode -Expected 0 -Message "a Full run whose full-lane checks pass or skip should exit 0.`n$($run.Output)"
+    $called = @(Get-Content -LiteralPath (Join-Path $fullRoot 'full-runs.txt'))
+    Assert-Equal -Actual $called.Count -Expected 2 -Message 'Full CI must invoke each test\full check.'
+    Assert-True -Condition ($run.Output -match 'PASS\s+test/full/heavy_pass\.ps1' -and
+        $run.Output -match 'SKIP\s+test/full/heavy_skip\.ps1.*no host C toolchain') -Message "Full CI full-lane results were not reported correctly.`n$($run.Output)"
+}
+finally {
+    Remove-Item -LiteralPath $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- A tracked script that does not parse -----------------------------------
 
 $repo = New-GateRepo

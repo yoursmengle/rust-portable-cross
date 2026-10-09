@@ -360,5 +360,10 @@ Assert-Thumbv7emEnvBeforeCargoBuild `
 $rustEnvBody = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\rust_env.ps1") -Raw -Encoding UTF8
 Assert-True -Condition ($rustEnvBody -match [regex]::Escape("1.98.0-x86_64-pc-windows-msvc")) -Message "rust_env should activate the pinned Rust 1.98.0 toolchain."
 Assert-True -Condition ($rustEnvBody -match 'Expected pinned Rust 1\.98\.0') -Message "rust_env should reject a managed rustc with the wrong version."
+# cc-rs falls back to the unsuffixed AR / RANLIB for the host MSVC target too, where
+# the GNU-style zig-ar rejects its lib.exe-style call; activation must only set them
+# per cross target. Checked from source so an unprovisioned clone still guards it.
+Assert-True -Condition ($rustEnvBody -notmatch '(?im)^\s*\$env:(AR|RANLIB)\s*=') -Message "rust_env must not assign the unsuffixed AR / RANLIB; set AR_<target> / RANLIB_<target> instead."
+Assert-True -Condition ($rustEnvBody -notmatch '(?i)Env:(AR|RANLIB)"\s+-Value') -Message "rust_env must not assign the unsuffixed AR / RANLIB through Set-Item."
 
 Write-Host "rust_build_env tests passed."

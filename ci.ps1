@@ -122,6 +122,43 @@ function New-Outcome {
     }
 }
 
+# A suite or script check that cannot run here (its prerequisites are missing) prints
+# "SKIP: <reason>" and exits with code 3, so the gate reports it as not run instead
+# of passed or failed. Both are required: a bare exit 3 is still a failure, so a
+# suite that happens to crash with that code cannot pass itself off as a skip.
+#
+# Self-contained (no script-scope lookups) because New-ScriptCheck calls it from a
+# GetNewClosure() module scope.
+function ConvertTo-ExitOutcome {
+    param(
+        [int]$ExitCode,
+
+        [string]$Output = ""
+    )
+
+    $status = "Failed"
+    $reason = "exited with code $ExitCode"
+    if ($ExitCode -eq 0) {
+        $status = "Passed"
+        $reason = ""
+        $Output = ""
+    }
+    elseif ($ExitCode -eq 3) {
+        $skipLines = @(($Output -split "`r?`n") | Where-Object { $_ -match '^\s*SKIP:\s*\S' })
+        if ($skipLines.Count -gt 0) {
+            $status = "Skipped"
+            $reason = ($skipLines[-1] -replace '^\s*SKIP:\s*', '').Trim()
+            $Output = ""
+        }
+    }
+
+    return [pscustomobject]@{
+        Status = $status
+        Reason = $reason
+        Output = $Output
+    }
+}
+
 $script:Results = New-Object 'System.Collections.Generic.List[object]'
 
 # Runs one check. A failing check never stops the ones after it: a developer who is
@@ -180,15 +217,12 @@ function New-ScriptCheck {
     # and the resolved runner explicitly instead of looking up script functions.
     $runner = Get-PowerShellExecutable
     $runCaptured = ${function:Invoke-Captured}
-    $makeOutcome = ${function:New-Outcome}
+    $toOutcome = ${function:ConvertTo-ExitOutcome}
     return {
         $result = & $runCaptured -FilePath $runner -Arguments @(
             "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Path
         )
-        if ($result.ExitCode -eq 0) {
-            return (& $makeOutcome -Status "Passed")
-        }
-        return (& $makeOutcome -Status "Failed" -Reason "exited with code $($result.ExitCode)" -Output $result.Output)
+        return (& $toOutcome -ExitCode $result.ExitCode -Output $result.Output)
     }.GetNewClosure()
 }
 
@@ -268,12 +302,7 @@ function Invoke-ExternalChecks {
             $output = (Read-CapturedFile -Path $entry.StdOut) + (Read-CapturedFile -Path $entry.StdErr)
             $exitCode = $entry.Process.ExitCode
 
-            if ($exitCode -eq 0) {
-                $outcome = New-Outcome -Status "Passed"
-            }
-            else {
-                $outcome = New-Outcome -Status "Failed" -Reason "exited with code $exitCode" -Output $output
-            }
+            $outcome = ConvertTo-ExitOutcome -ExitCode $exitCode -Output $output
 
             $script:Results.Add([pscustomobject]@{
                 Name    = $entry.Name
@@ -575,6 +604,14 @@ function Get-CrossBuildChecks {
     return @(Get-ChildItem -LiteralPath $RepoRoot -Filter "check_tool_*.ps1" -File | Sort-Object Name)
 }
 
+# Repository-internal checks that need the installed toolchain and take minutes,
+# kept out of test\*.tests.ps1 so the commit hook never runs them.
+function Get-FullLaneChecks {
+    $fullRoot = Join-Path $RepoRoot "test\full"
+    if (-not (Test-Path -LiteralPath $fullRoot -PathType Container)) { return @() }
+    return @(Get-ChildItem -LiteralPath $fullRoot -Filter "*.ps1" -File | Sort-Object Name)
+}
+
 function Assert-ToolchainInstalled {
     $missing = @(
         $RequiredToolchainPaths |
@@ -775,6 +812,9 @@ Invoke-ExternalChecks -Checks $externalChecks.ToArray()
 if ($Full) {
     foreach ($crossCheck in Get-CrossBuildChecks) {
         Invoke-Check -Name $crossCheck.Name -Body (New-ScriptCheck -Path $crossCheck.FullName)
+    }
+    foreach ($fullCheck in Get-FullLaneChecks) {
+        Invoke-Check -Name "test/full/$($fullCheck.Name)" -Body (New-ScriptCheck -Path $fullCheck.FullName)
     }
 }
 
