@@ -19,6 +19,7 @@ try {
     for ($i = 0; $i -lt $bytes.Length; $i += 4096) { $bytes[$i] = [byte]($i % 251) }
     [IO.File]::WriteAllBytes($installer, $bytes)
     $web = Split-FileAndPublish -InstallerPath $installer -Version '1.0.0' -RepoPath $repo
+    Assert-True ($web -eq (Join-Path $root 'output\rust-portable-cross')) 'Published files were written to the wrong output directory.'
     $manifestPath = Join-Path $web 'rust-portable-cross-offline.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-True ($manifest.partCount -eq 2) '24 MiB chunk boundary changed.'

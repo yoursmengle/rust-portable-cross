@@ -82,6 +82,25 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $view 'scripts\shared.txt')) -or
         -not (Test-Path -LiteralPath (Join-Path $view 'arm.txt'))) { throw 'Component overlay did not assemble both files.' }
     Assert-Throws -Action { $null = New-StagedInstallView -StagingRoot $staging -InstallRoot $view } -Pattern 'already exists'
+
+    $script:stagedIntegrityChecks = 0
+    $script:stagedInstallChecks = 0
+    $script:installerChecks = 0
+    function Assert-StagedRelease { param([string]$StagingRoot, [string]$Version) $script:stagedIntegrityChecks++ }
+    function Invoke-StagedInstallValidation { param([string]$StagingRoot, [string]$Version, [string]$WorkRoot) $script:stagedInstallChecks++ }
+    function Invoke-DisposableInstallerValidation { param([string]$InstallerPath, [string]$Version, [string]$WorkRoot) $script:installerChecks++ }
+
+    Invoke-StagedBuildValidation -StagingRoot $staging -Version '1.2.3' -WorkRoot $work -SkipInstallValidation
+    if ($script:stagedIntegrityChecks -ne 1 -or $script:stagedInstallChecks -ne 0) {
+        throw 'Fast build mode must check staged integrity without creating an isolated install view.'
+    }
+    Invoke-StagedBuildValidation -StagingRoot $staging -Version '1.2.3' -WorkRoot $work
+    if ($script:stagedInstallChecks -ne 1) { throw 'Default build mode must run isolated staged install validation.' }
+
+    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -SkipInstallValidation
+    if ($script:installerChecks -ne 0) { throw 'Fast build mode must skip disposable installer install/uninstall validation.' }
+    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work
+    if ($script:installerChecks -ne 1) { throw 'Default build mode must run disposable installer validation.' }
     'release_validation tests passed.'
 }
 finally {

@@ -57,7 +57,7 @@ function Invoke-SplitPublication {
 
     if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Installer output not found: $InstallerPath" }
     $chunkSize = 24 * 1024 * 1024
-    $webDownloadDir = Join-Path (Split-Path -Parent $RepoPath) 'web_hec_ai_studio\assets\download'
+    $webDownloadDir = Join-Path (Split-Path -Parent $RepoPath) 'output\rust-portable-cross'
     New-Item -ItemType Directory -Path $webDownloadDir -Force | Out-Null
     $webDownloadDir = Assert-ManagedRootIsOrdinary -Path $webDownloadDir
     $privateRoot = Resolve-ManagedRelativePath -Root $webDownloadDir -RelativePath ('.publish-' + [guid]::NewGuid().ToString('N'))

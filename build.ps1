@@ -2,7 +2,8 @@
 param(
     [string]$Version,
     [string]$IsccPath,
-    [switch]$SkipStaging
+    [switch]$SkipStaging,
+    [switch]$SkipInstallValidation
 )
 
 Set-StrictMode -Version Latest
@@ -63,6 +64,29 @@ function Assert-InstallerOutput {
         throw "Installer compilation reported success but expected output not found: $InstallerPath"
     }
     return $InstallerPath
+}
+
+function Invoke-StagedBuildValidation {
+    param([string]$StagingRoot, [string]$Version, [string]$WorkRoot, [switch]$SkipInstallValidation)
+
+    if ($SkipInstallValidation) {
+        Write-Step 'Skipping isolated install-view validation; checking staged payload integrity only'
+        $null = Assert-StagedRelease -StagingRoot $StagingRoot -Version $Version
+        return
+    }
+    Write-Step 'Verifying staged release and isolated install view'
+    Invoke-StagedInstallValidation -StagingRoot $StagingRoot -Version $Version -WorkRoot $WorkRoot
+}
+
+function Invoke-InstallerBuildValidation {
+    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [switch]$SkipInstallValidation)
+
+    if ($SkipInstallValidation) {
+        Write-Step 'Skipping disposable installer install/uninstall validation'
+        return
+    }
+    Write-Step 'Installing and verifying the compiled EXE in a disposable location'
+    Invoke-DisposableInstallerValidation -InstallerPath $InstallerPath -Version $Version -WorkRoot $WorkRoot
 }
 
 function Get-VersionFromGitTag {
@@ -163,8 +187,7 @@ if (-not $SkipStaging) {
 }
 
 $ValidationRoot = Join-Path $RepoRoot 'dist\release-validation'
-Write-Step "Verifying staged release and isolated install view"
-Invoke-StagedInstallValidation -StagingRoot $StagingDir -Version $Version -WorkRoot $ValidationRoot
+Invoke-StagedBuildValidation -StagingRoot $StagingDir -Version $Version -WorkRoot $ValidationRoot -SkipInstallValidation:$SkipInstallValidation
 
 $Iscc = Resolve-IsccPath -Override $IsccPath
 Write-Step "Using Inno Setup compiler: $Iscc"
@@ -183,8 +206,7 @@ if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
 $ExpectedExe = Join-Path $InstallerDir "rust-portable-cross-offline-$Version.exe"
 $null = Assert-InstallerOutput -InstallerPath $ExpectedExe
 
-Write-Step "Installing and verifying the compiled EXE in a disposable location"
-Invoke-DisposableInstallerValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot
+Invoke-InstallerBuildValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot -SkipInstallValidation:$SkipInstallValidation
 
 $CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
 Write-Step "Installer built successfully:"
