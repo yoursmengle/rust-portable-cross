@@ -43,7 +43,9 @@ function Assert-PathExists {
         [string]$Message
     )
 
-    if (-not (Test-Path -LiteralPath $Path)) {
+    # Called once per payload file during validation; File/Directory.Exists avoids
+    # Test-Path's per-call cost, which dominated on ~16k files.
+    if (-not ([System.IO.File]::Exists($Path) -or [System.IO.Directory]::Exists($Path))) {
         throw "$Message`nMissing path: $Path"
     }
 }
@@ -279,7 +281,7 @@ function Assert-InstallLayoutPreflight {
                 throw "Component $name lists a file outside its managed payload: $relative"
             }
             $path = Resolve-ManagedRelativePath -Root $InstallRoot -RelativePath $relative -AllowInternalFileLink:($name -eq 'core')
-            if (Test-Path -LiteralPath $path -PathType Container) {
+            if ([System.IO.Directory]::Exists($path)) {
                 throw "Install layout lists a directory as a file: $relative"
             }
             if ($name -ne 'core' -and $SelectedComponents -notcontains $name) {

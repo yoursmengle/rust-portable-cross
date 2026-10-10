@@ -67,26 +67,24 @@ function Assert-InstallerOutput {
 }
 
 function Invoke-StagedBuildValidation {
-    param([string]$StagingRoot, [string]$Version, [string]$WorkRoot, [switch]$SkipInstallValidation)
+    param([string]$StagingRoot, [string]$Version)
 
-    if ($SkipInstallValidation) {
-        Write-Step 'Skipping isolated install-view validation; checking staged payload integrity only'
-        $null = Assert-StagedRelease -StagingRoot $StagingRoot -Version $Version
-        return
-    }
-    Write-Step 'Verifying staged release and isolated install view'
-    Invoke-StagedInstallValidation -StagingRoot $StagingRoot -Version $Version -WorkRoot $WorkRoot
+    # Staging is checked read-only here. Whether the payload installs and builds is
+    # proven once, on the compiled EXE, by Invoke-InstallerBuildValidation: a second
+    # run on a copy of staging doubled the slowest part of the build.
+    Write-Step 'Verifying staged release payload'
+    $null = Assert-StagedRelease -StagingRoot $StagingRoot -Version $Version
 }
 
 function Invoke-InstallerBuildValidation {
-    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [switch]$SkipInstallValidation)
+    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [string]$InstallParent, [switch]$SkipInstallValidation)
 
     if ($SkipInstallValidation) {
         Write-Step 'Skipping disposable installer install/uninstall validation'
         return
     }
     Write-Step 'Installing and verifying the compiled EXE in a disposable location'
-    Invoke-DisposableInstallerValidation -InstallerPath $InstallerPath -Version $Version -WorkRoot $WorkRoot
+    Invoke-DisposableInstallerValidation -InstallerPath $InstallerPath -Version $Version -WorkRoot $WorkRoot -InstallParent $InstallParent
 }
 
 function Get-VersionFromGitTag {
@@ -187,7 +185,10 @@ if (-not $SkipStaging) {
 }
 
 $ValidationRoot = Join-Path $RepoRoot 'dist\release-validation'
-Invoke-StagedBuildValidation -StagingRoot $StagingDir -Version $Version -WorkRoot $ValidationRoot -SkipInstallValidation:$SkipInstallValidation
+# Short on purpose (Inno's MAX_PATH budget) and under dist\, so one antivirus
+# exclusion on dist\ covers staging and the disposable install alike.
+$ValidationInstallParent = Join-Path $RepoRoot 'dist\v'
+Invoke-StagedBuildValidation -StagingRoot $StagingDir -Version $Version
 
 $Iscc = Resolve-IsccPath -Override $IsccPath
 Write-Step "Using Inno Setup compiler: $Iscc"
@@ -206,7 +207,7 @@ if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
 $ExpectedExe = Join-Path $InstallerDir "rust-portable-cross-offline-$Version.exe"
 $null = Assert-InstallerOutput -InstallerPath $ExpectedExe
 
-Invoke-InstallerBuildValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot -SkipInstallValidation:$SkipInstallValidation
+Invoke-InstallerBuildValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot -InstallParent $ValidationInstallParent -SkipInstallValidation:$SkipInstallValidation
 
 $CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
 Write-Step "Installer built successfully:"

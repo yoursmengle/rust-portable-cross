@@ -55,6 +55,18 @@ try {
     if ($junctionCreated) {
         Assert-Throws -Action { Resolve-ManagedRelativePath -Root $installRoot -RelativePath 'junction\sentinel.txt' } -Message 'Junction traversal was accepted.'
         Assert-Throws -Action { Assert-ManagedRootIsOrdinary -Path (Join-Path $junctionPath 'subdir') } -Message 'Junction output root was accepted.'
+
+        # Fast tree removal must delete a junction inside the tree without
+        # following it, and must get past read-only files.
+        $doomed = Join-Path $installRoot 'doomed'
+        New-Item -ItemType Directory -Path (Join-Path $doomed 'nested') -Force | Out-Null
+        $readOnlyFile = Join-Path $doomed 'nested\readonly.txt'
+        [System.IO.File]::WriteAllText($readOnlyFile, 'x')
+        [System.IO.File]::SetAttributes($readOnlyFile, [System.IO.FileAttributes]::ReadOnly)
+        New-Item -ItemType Junction -Path (Join-Path $doomed 'nested\escape') -Target $siblingRoot | Out-Null
+        Remove-ManagedPath -Path $doomed -ManagedRoot $installRoot
+        if (Test-Path -LiteralPath $doomed) { throw 'Remove-ManagedPath left the tree behind.' }
+        if (-not (Test-Path -LiteralPath $sentinelPath -PathType Leaf)) { throw 'Tree removal followed a junction out of the managed root.' }
     }
 
     $layout = [ordered]@{

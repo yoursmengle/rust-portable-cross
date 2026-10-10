@@ -93,48 +93,7 @@ function Remove-ManagedPath {
     }
     $relative = Get-RelativePath -BasePath $ManagedRoot -ChildPath $Path
     $null = Resolve-ManagedRelativePath -Root $ManagedRoot -RelativePath $relative
-    if (Test-Path -LiteralPath $Path) {
-        $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue
-        foreach ($file in $files) {
-            try {
-                [System.IO.File]::SetAttributes($file.FullName, [System.IO.FileAttributes]::Normal)
-            }
-            catch {
-            }
-        }
-
-        $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
-        foreach ($file in $files) {
-            $removed = $false
-            for ($attempt = 1; $attempt -le 5; $attempt++) {
-                try {
-                    Remove-Item -LiteralPath $file.FullName -Force
-                    $removed = $true
-                    break
-                }
-                catch {
-                    if ($attempt -eq 5) {
-                        throw
-                    }
-
-                    Start-Sleep -Milliseconds 300
-                }
-            }
-
-            if (-not $removed) {
-                throw "Unable to remove file: $($file.FullName)"
-            }
-        }
-
-        $directories = Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
-        foreach ($directory in $directories) {
-            if ((Get-ChildItem -LiteralPath $directory.FullName -Force | Measure-Object).Count -eq 0) {
-                Remove-Item -LiteralPath $directory.FullName -Force
-            }
-        }
-
-        Remove-Item -LiteralPath $Path -Force
-    }
+    Remove-ManagedTree -Path $Path
 }
 
 function Get-OfflineReleasePaths {
@@ -187,6 +146,12 @@ function Get-RelativePath {
 
     $baseFull = [System.IO.Path]::GetFullPath($BasePath)
     $childFull = [System.IO.Path]::GetFullPath($ChildPath)
+    # Fast path for the common case - a file under the base - since staging calls
+    # this several times for each of ~16k payload files.
+    $basePrefix = $baseFull.TrimEnd([char[]]@('\', '/')) + [System.IO.Path]::DirectorySeparatorChar
+    if ($childFull.Length -gt $basePrefix.Length -and $childFull.StartsWith($basePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $childFull.Substring($basePrefix.Length).TrimEnd([char[]]@('\', '/')).Replace('\', '/')
+    }
     $baseRoot = [System.IO.Path]::GetPathRoot($baseFull)
     $childRoot = [System.IO.Path]::GetPathRoot($childFull)
     if (-not [string]::Equals($baseRoot, $childRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -239,8 +204,10 @@ function Copy-FileToDestination {
     $destinationRelative = Get-RelativePath -BasePath $DestinationRoot -ChildPath $DestinationPath
     $null = Resolve-ManagedRelativePath -Root $SourceRoot -RelativePath $sourceRelative -AllowInternalFileLink
     $null = Resolve-ManagedRelativePath -Root $DestinationRoot -RelativePath $destinationRelative
-    Ensure-Directory -Path (Split-Path -Parent $DestinationPath)
-    Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    # .NET calls rather than Test-Path / New-Item / Copy-Item: this runs once per
+    # payload file (~16k), where the cmdlets' per-call cost dominated staging.
+    [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($DestinationPath)))
+    [System.IO.File]::Copy($SourcePath, $DestinationPath, $true)
     $RecordedFiles.Add($InstallRelativePath.Replace("\", "/"))
 }
 

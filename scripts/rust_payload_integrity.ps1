@@ -78,19 +78,28 @@ function New-PayloadIntegrityIndex {
         $componentRoot = Get-PayloadComponentRoot -StagingRoot $staging -Component $component.Name
         foreach ($relative in @($component.Value | Sort-Object)) {
             $path = Resolve-ManagedRelativePath -Root $componentRoot -RelativePath ([string]$relative)
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing staged payload file: $($component.Name)/$relative" }
-            $sourcePath = $path
+            # [IO.FileInfo] rather than Test-Path / Get-Item: this loop runs once per
+            # payload file (~16k), where the cmdlets' per-call cost dominated.
+            $file = [IO.FileInfo]::new($path)
+            if (-not $file.Exists) { throw "Missing staged payload file: $($component.Name)/$relative" }
             if ($SourceRoot -and $relative -notin @('Activate Rust Portable Cross.ps1', 'install-layout.json', 'docs/sample-dependencies.json')) {
                 $sourceRelative = if ($relative -eq 'docs/README-offline.md') { 'docs/customer/README-offline.md' } else { [string]$relative }
                 $sourcePath = Resolve-ManagedRelativePath -Root $SourceRoot -RelativePath $sourceRelative -AllowInternalFileLink
-                if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Missing source payload file: $($component.Name)/$relative" }
+                $source = [IO.FileInfo]::new($sourcePath)
+                if (-not $source.Exists) { throw "Missing source payload file: $($component.Name)/$relative" }
+                # The source is compared by size, not re-hashed: reading all ~16k source
+                # files again cost minutes whenever an on-access scanner had not seen
+                # them recently, and the digest below is of the bytes that actually ship.
+                # A link's own length is not its target's, so links are not compared.
+                if (($source.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $source.Length -ne $file.Length) {
+                    throw "Staged payload file differs in size from its source: $($component.Name)/$relative"
+                }
             }
-            $file = Get-Item -LiteralPath $path
             $entries.Add([ordered]@{
                 component = [string]$component.Name
                 path = [string]$relative
                 size = [long]$file.Length
-                sha256 = Get-PayloadFileHash -Path $sourcePath
+                sha256 = Get-PayloadFileHash -Path $path
             })
         }
     }
@@ -144,8 +153,8 @@ function Test-PayloadIntegrityIndex {
         if ($entry.sha256 -notmatch '^[a-f0-9]{64}$' -or [long]$entry.size -lt 0) { throw "Invalid payload index hash or size: $key" }
         $componentRoot = Get-PayloadComponentRoot -StagingRoot $StagingRoot -InstallRoot $InstallRoot -Component $name
         $path = Resolve-ManagedRelativePath -Root $componentRoot -RelativePath $relative
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing payload file: $key" }
-        $file = Get-Item -LiteralPath $path
+        $file = [IO.FileInfo]::new($path)
+        if (-not $file.Exists) { throw "Missing payload file: $key" }
         if ([long]$file.Length -ne [long]$entry.size -or
             -not [string]::Equals((Get-PayloadFileHash -Path $path), [string]$entry.sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Payload integrity mismatch: $key"

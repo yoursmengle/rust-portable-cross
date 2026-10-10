@@ -105,7 +105,7 @@ function Assert-TransactionChildPath {
 function Remove-TransactionDirectory {
     param([string]$ManagedRoot, [string]$Path)
     $full = Assert-TransactionChildPath -ManagedRoot $ManagedRoot -Path $Path
-    if (Test-Path -LiteralPath $full) { Remove-Item -LiteralPath $full -Recurse -Force }
+    Remove-ManagedTree -Path $full
 }
 
 function Restore-PreviousManagedDirectory {

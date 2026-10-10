@@ -77,30 +77,41 @@ try {
     Assert-Throws -Action { Invoke-ReleaseSmokeProcess -InstallRoot (Join-Path $work 'missing-install') -Version '1.2.3' 2>$null } -Pattern 'Installed release smoke failed'
     if ((Get-FileHash -LiteralPath $publicManifest -Algorithm SHA256).Hash -ne $manifestHash) { throw 'Failed release gate changed the public manifest.' }
 
-    $view = Join-Path $work 'view'
-    $null = New-StagedInstallView -StagingRoot $staging -InstallRoot $view
-    if (-not (Test-Path -LiteralPath (Join-Path $view 'scripts\shared.txt')) -or
-        -not (Test-Path -LiteralPath (Join-Path $view 'arm.txt'))) { throw 'Component overlay did not assemble both files.' }
-    Assert-Throws -Action { $null = New-StagedInstallView -StagingRoot $staging -InstallRoot $view } -Pattern 'already exists'
+    # A short parent is used and created; one too deep for Inno's MAX_PATH budget falls back to TEMP.
+    $shortParent = Join-Path ([IO.Path]::GetPathRoot($work)) ('rv' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    try {
+        $resolved = Get-DisposableInstallParent -InstallParent $shortParent
+        if (-not [string]::Equals($resolved.TrimEnd('\'), $shortParent, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath $shortParent -PathType Container)) { throw "Short install parent was not used: $resolved" }
+    }
+    finally { if (Test-Path -LiteralPath $shortParent) { Remove-Item -LiteralPath $shortParent -Force } }
+    $deepParent = Join-Path $work ('deep-' + ('x' * 40))
+    $fallback = Get-DisposableInstallParent -InstallParent $deepParent 3>$null
+    if (-not [string]::Equals($fallback.TrimEnd('\'), [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) -or
+        (Test-Path -LiteralPath $deepParent)) { throw "A too-deep install parent must fall back to TEMP: $fallback" }
 
     $script:stagedIntegrityChecks = 0
-    $script:stagedInstallChecks = 0
     $script:installerChecks = 0
+    $script:installParent = $null
     function Assert-StagedRelease { param([string]$StagingRoot, [string]$Version) $script:stagedIntegrityChecks++ }
-    function Invoke-StagedInstallValidation { param([string]$StagingRoot, [string]$Version, [string]$WorkRoot) $script:stagedInstallChecks++ }
-    function Invoke-DisposableInstallerValidation { param([string]$InstallerPath, [string]$Version, [string]$WorkRoot) $script:installerChecks++ }
-
-    Invoke-StagedBuildValidation -StagingRoot $staging -Version '1.2.3' -WorkRoot $work -SkipInstallValidation
-    if ($script:stagedIntegrityChecks -ne 1 -or $script:stagedInstallChecks -ne 0) {
-        throw 'Fast build mode must check staged integrity without creating an isolated install view.'
+    function Invoke-DisposableInstallerValidation {
+        param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [string]$InstallParent)
+        $script:installerChecks++
+        $script:installParent = $InstallParent
     }
-    Invoke-StagedBuildValidation -StagingRoot $staging -Version '1.2.3' -WorkRoot $work
-    if ($script:stagedInstallChecks -ne 1) { throw 'Default build mode must run isolated staged install validation.' }
 
-    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -SkipInstallValidation
+    # The staged check is read-only; installation is proven once, on the compiled EXE.
+    Invoke-StagedBuildValidation -StagingRoot $staging -Version '1.2.3'
+    if ($script:stagedIntegrityChecks -ne 1) { throw 'Every build must check staged integrity.' }
+    foreach ($removed in @('Invoke-StagedInstallValidation', 'New-StagedInstallView')) {
+        if (Get-Command -Name $removed -ErrorAction SilentlyContinue) { throw "$removed must not come back: it duplicates the installed-EXE validation." }
+    }
+
+    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -InstallParent 'X:\v' -SkipInstallValidation
     if ($script:installerChecks -ne 0) { throw 'Fast build mode must skip disposable installer install/uninstall validation.' }
-    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work
+    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -InstallParent 'X:\v'
     if ($script:installerChecks -ne 1) { throw 'Default build mode must run disposable installer validation.' }
+    if ($script:installParent -ne 'X:\v') { throw 'The build must pass its short install parent to installer validation.' }
     'release_validation tests passed.'
 }
 finally {

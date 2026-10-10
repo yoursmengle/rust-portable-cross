@@ -68,34 +68,6 @@ function Assert-StagedRelease {
     return $layout
 }
 
-function Copy-ReleaseComponent {
-    param([string]$Source, [string]$Destination)
-    if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Missing release component: $Source" }
-    if (-not (Test-Path -LiteralPath $Destination)) { New-Item -ItemType Directory -Path $Destination -Force | Out-Null }
-    foreach ($file in @(Get-ChildItem -LiteralPath $Source -File -Recurse -Force)) {
-        $relative = $file.FullName.Substring($Source.TrimEnd('\', '/').Length).TrimStart('\', '/')
-        $destinationPath = Join-Path $Destination $relative
-        $parent = Split-Path -Parent $destinationPath
-        if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-        Copy-Item -LiteralPath $file.FullName -Destination $destinationPath -Force
-    }
-}
-
-function New-StagedInstallView {
-    param([string]$StagingRoot, [string]$InstallRoot)
-    $staging = Assert-ManagedRootIsOrdinary -Path $StagingRoot
-    $install = Assert-ManagedRootIsOrdinary -Path $InstallRoot
-    if ([string]::Equals($staging, $install, [StringComparison]::OrdinalIgnoreCase) -or
-        (Test-ManagedPathInsideRoot -Root $staging -Path $install)) { throw 'Install view must be outside staging.' }
-    if (Test-Path -LiteralPath $install) { throw "Install view already exists: $install" }
-    New-Item -ItemType Directory -Path $install -Force | Out-Null
-    foreach ($component in @('core', 'armv7', 'aarch64', 'thumbv7em')) {
-        $source = Get-PayloadComponentRoot -StagingRoot $staging -Component $component
-        Copy-ReleaseComponent -Source $source -Destination $install
-    }
-    return $install
-}
-
 function Get-ReleasePowerShell {
     $shellCommand = Get-Command pwsh -ErrorAction SilentlyContinue
     if ($shellCommand) { return $shellCommand.Source }
@@ -117,38 +89,37 @@ function Invoke-ReleaseSmokeProcess {
     if ($LASTEXITCODE -ne 0) { throw "Installed release smoke failed ($LASTEXITCODE): $InstallRoot" }
 }
 
-function Invoke-StagedInstallValidation {
-    param([string]$StagingRoot, [string]$Version, [string]$WorkRoot)
-    $null = Assert-StagedRelease -StagingRoot $StagingRoot -Version $Version
-    $work = Assert-ManagedRootIsOrdinary -Path $WorkRoot
-    if (-not (Test-Path -LiteralPath $work)) { New-Item -ItemType Directory -Path $work -Force | Out-Null }
-    $install = Join-Path $work ('install-view-' + [guid]::NewGuid().ToString('N'))
-    try {
-        $null = New-StagedInstallView -StagingRoot $StagingRoot -InstallRoot $install
-        $finalizer = Join-Path $install 'scripts\finalize_offline_install.ps1'
-        $shell = Get-ReleasePowerShell
-        & $shell -NoProfile -ExecutionPolicy Bypass -File $finalizer -InstallRoot $install -SelectedComponents 'armv7,aarch64,thumbv7em' -InstallScope perUser
-        if ($LASTEXITCODE -ne 0) { throw "Staged install finalizer failed ($LASTEXITCODE)" }
-        Invoke-ReleaseSmokeProcess -InstallRoot $install -Version $Version
-    }
-    finally {
-        if (Test-Path -LiteralPath $install) {
-            $full = Assert-TransactionChildPath -ManagedRoot $work -Path $install
-            Remove-Item -LiteralPath $full -Recurse -Force
+# Where the disposable install lives. The release build passes a directory under
+# its own output root, so that one antivirus exclusion on that root covers both
+# staging and this install: the on-access scan of ~16k freshly written files is
+# the largest single cost of validation. A checkout too deep for Inno's MAX_PATH
+# budget falls back to TEMP.
+function Get-DisposableInstallParent {
+    param([string]$InstallParent)
+
+    $maxLength = 45
+    if ($InstallParent) {
+        $candidate = [IO.Path]::GetFullPath($InstallParent).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if ($candidate.Length -le $maxLength) {
+            if (-not (Test-Path -LiteralPath $candidate)) { New-Item -ItemType Directory -Path $candidate -Force | Out-Null }
+            return Assert-ManagedRootIsOrdinary -Path $candidate
         }
+        Write-Warning "Installer validation directory is too deep ($($candidate.Length) > $maxLength characters), using TEMP instead: $candidate"
     }
+    $temp = Assert-ManagedRootIsOrdinary -Path ([IO.Path]::GetTempPath())
+    if ($temp.Length -gt $maxLength) { throw "TEMP is too deep for installer validation: $temp" }
+    return $temp
 }
 
 function Invoke-DisposableInstallerValidation {
-    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot)
+    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [string]$InstallParent)
 
     if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw "Installer output not found: $InstallerPath" }
     $work = Assert-ManagedRootIsOrdinary -Path $WorkRoot
     if (-not (Test-Path -LiteralPath $work)) { New-Item -ItemType Directory -Path $work -Force | Out-Null }
     # Inno's file replacement path still hits traditional MAX_PATH limits on
     # some machines. Keep the temporary install itself near the volume root.
-    $shortRoot = Assert-ManagedRootIsOrdinary -Path ([IO.Path]::GetTempPath())
-    if ($shortRoot.Length -gt 45) { throw "TEMP is too deep for installer validation: $shortRoot" }
+    $shortRoot = Get-DisposableInstallParent -InstallParent $InstallParent
     $validationRoot = Join-Path $shortRoot ('rpc-u04-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
     $install = Join-Path $validationRoot 'toolkit'
     # Keep the recovery file outside the disposable tree until restoration has
@@ -228,7 +199,7 @@ function Invoke-DisposableInstallerValidation {
                 $environmentKey.Dispose()
                 if (Test-Path -LiteralPath $validationRoot) {
                     $full = Assert-TransactionChildPath -ManagedRoot $shortRoot -Path $validationRoot
-                    Remove-Item -LiteralPath $full -Recurse -Force
+                    Remove-ManagedTree -Path $full
                 }
             }
         }

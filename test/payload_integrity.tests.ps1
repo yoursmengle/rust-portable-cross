@@ -63,6 +63,20 @@ try {
     Expect-Failure { Test-PayloadIntegrityIndex -StagingRoot $staging -Layout $parsed -RequireIndex } 'target.rlib'
     Set-Content -LiteralPath (Join-Path $arm $targetFile) -Value 'target bytes' -Encoding ASCII
 
+    # With a source root, the index still records the staged bytes, and each staged
+    # file must match its source in size.
+    $source = Join-Path $root 'source'
+    New-Item -ItemType Directory -Path (Split-Path -Parent (Join-Path $source $targetFile)) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $core 'data.bin') -Destination (Join-Path $source 'data.bin')
+    Copy-Item -LiteralPath (Join-Path $arm $targetFile) -Destination (Join-Path $source $targetFile)
+    $null = New-PayloadIntegrityIndex -StagingRoot $staging -SourceRoot $source -Layout $parsed
+    Assert-True (Test-PayloadIntegrityIndex -StagingRoot $staging -Layout $parsed -RequireIndex) 'Index built with a source root did not match staging.'
+    Set-Content -LiteralPath (Join-Path $source 'data.bin') -Value 'core bytes, but longer' -Encoding ASCII
+    Expect-Failure { New-PayloadIntegrityIndex -StagingRoot $staging -SourceRoot $source -Layout $parsed } 'differs in size from its source: core/data.bin'
+    Remove-Item -LiteralPath (Join-Path $source 'data.bin') -Force
+    Expect-Failure { New-PayloadIntegrityIndex -StagingRoot $staging -SourceRoot $source -Layout $parsed } 'Missing source payload file: core/data.bin'
+    $null = New-PayloadIntegrityIndex -StagingRoot $staging -Layout $parsed
+
     $installed = Join-Path $root 'installed'
     Copy-Item -LiteralPath $core -Destination $installed -Recurse
     $installedTarget = Join-Path $installed $targetFile
