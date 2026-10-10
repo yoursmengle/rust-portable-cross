@@ -1,334 +1,522 @@
 # rust-portable-cross
 
-A portable, self-contained Rust cross-compilation toolkit for Windows. All toolchain components (rustup, cargo, rustc, Zig) are installed into the repository-local `tools/` directory and do **not** touch your system-wide Rust installation or PATH.
+**English** | [简体中文](README.zh-CN.md)
 
-Supported cross-compilation targets:
+A portable, self-contained Rust cross-compilation toolkit for Windows.
 
-| Target | Description |
-|---|---|
-| `armv7-unknown-linux-musleabihf` | ARMv7 Linux (musl libc, hard-float) |
-| `aarch64-unknown-linux-musl` | AArch64 / ARM64 Linux (musl libc) |
-| `thumbv7em-none-eabihf` | ARM Cortex-M4F/M7 bare-metal (`no_std`, hard-float) |
+Build Rust programs for ARM Linux boards, ARM64 Linux boards, Cortex-M microcontrollers and Windows
+itself from one Windows machine, with no Visual Studio, no Windows SDK, no GCC cross-toolchain and no
+system-wide Rust installation. Everything lives in one directory that you can copy, move or delete.
 
-The Linux targets are powered by [Zig](https://ziglang.org/) acting as the C linker, eliminating the need for host-installed GCC/Clang cross-toolchains. The bare-metal `thumbv7em-none-eabihf` target links with the bundled `rust-lld` and needs no Zig wrapper or external C toolchain.
+- **Self-contained.** rustup, cargo, rustc and Zig are installed under the toolkit's own `tools/`
+  directory. Your system `PATH`, registry and any existing Rust installation are left alone.
+- **No C toolchain to install.** [Zig](https://ziglang.org/) acts as the C compiler and linker for the
+  Linux targets, and the toolkit ships its own Windows link inputs for host builds.
+- **Works offline.** A release is a single offline installer; after installation, builds need no
+  network access. The bundled sample's dependencies are included.
+- **Pinned and verified.** The Rust and Zig versions are fixed, downloads are checked against
+  recorded SHA-256 digests, and every shipped file is covered by an integrity index.
+- **Relocatable.** Move the directory and activate it again; nothing else needs to change.
 
----
+## Contents
 
-## Prerequisites
+- [Supported targets](#supported-targets)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Using the toolkit in your own project](#using-the-toolkit-in-your-own-project)
+- [Sample projects](#sample-projects)
+- [How it works](#how-it-works)
+- [Scripts reference](#scripts-reference)
+- [Download configuration](#download-configuration)
+- [Building a release](#building-a-release)
+- [Development](#development)
+- [Repository layout](#repository-layout)
+- [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+- [Contributing](#contributing)
+- [License](#license)
 
-- Windows 10 / Windows Server 2019 or later (x86-64)
+## Supported targets
+
+| Target | Platform | Build script | Linker |
+|---|---|---|---|
+| `armv7-unknown-linux-musleabihf` | ARMv7 Linux, musl libc, hard-float | `scripts/rust_build_armv7.ps1` | Zig |
+| `aarch64-unknown-linux-musl` | ARM64 Linux, musl libc | `scripts/rust_build_aarch64.ps1` | Zig |
+| `thumbv7em-none-eabihf` | ARM Cortex-M4F / M7 bare metal (`no_std`), hard-float | `scripts/rust_build_thumbv7em.ps1` | `rust-lld` |
+| `x86_64-pc-windows-msvc` | Windows x64 (the host) | `scripts/rust_build_x64_win_native.ps1` | `rust-lld` |
+
+The Linux targets produce statically linked musl binaries that run on the board without any runtime
+libraries. Windows executables run on Windows 10 / Server 2016 and later and need no Visual C++
+redistributable.
+
+Pinned versions: Rust `1.98.0` (host toolchain `1.98.0-x86_64-pc-windows-msvc`) and Zig `0.13.0`.
+
+## Requirements
+
+- Windows 10 / Windows Server 2019 or later, x86-64
 - PowerShell 5.1 or PowerShell 7+
-- Internet access (or configured mirrors/proxy — see [Download Configuration](#download-configuration))
+- About 2 GB of free disk space for the installed toolkit, plus space for your build output
+- Internet access for the from-source setup only (mirrors and proxies are supported, see
+  [Download configuration](#download-configuration)); the offline installer needs none
 
----
+Not required: Visual Studio, the MSVC linker, the Windows SDK, a system Rust installation, or any GCC /
+Clang cross-toolchain.
 
-## Quick Start
+## Installation
 
-### 1. Internal first-time setup
+There are two ways to get a working toolkit. Use the offline installer to *use* the toolkit; set it up
+from source to *develop* it or to build your own installer.
 
-Run once from the repository root to download and install all toolchain components:
+### Option A: offline installer
+
+Run `rust-portable-cross-offline-<version>.exe`. It downloads nothing.
+
+- It installs for the current user by default; an all-users installation is offered in the dialog.
+- The default location is `D:\rust-portable-cross` when a `D:` drive exists, otherwise
+  `C:\rust-portable-cross`.
+- All four targets are installed together.
+
+After installation, open **Activate Rust Portable Cross (PowerShell)** from the Start menu. The
+customer-facing guide that ships with the installer is `docs/customer/README-offline.md`.
+
+To produce the installer yourself, see [Building a release](#building-a-release).
+
+### Option B: from source
+
+Clone the repository and run the setup script once from its root:
 
 ```powershell
+git clone https://gitee.com/yoursmengle/rust-portable-cross.git
+cd rust-portable-cross
 .\scripts\rust_setup.ps1
 ```
 
-This will:
-- Download `rustup-init.exe` and install the pinned `1.98.0-x86_64-pc-windows-msvc` toolchain into `tools/`
-- Add the `armv7-unknown-linux-musleabihf`, `aarch64-unknown-linux-musl`, and `thumbv7em-none-eabihf` targets
-- Download and extract Zig 0.13.0 into `tools/zig/`
-- Generate Zig-based cross-compiler wrapper scripts in `tools/wrappers/`
-- Generate the Windows host link inputs in `tools/sysroot/x86_64-pc-windows-msvc/` and verify the managed build tools and target payloads
+Setup:
 
-Use `-Force` to reset cached registry/package data and re-run setup:
+- downloads `rustup-init.exe` and installs the pinned Rust toolchain into `tools/`,
+- adds the three cross targets,
+- downloads Zig, checks it against the recorded digest, and removes the parts of its library that
+  belong to platforms the toolkit does not target,
+- generates the Zig-based compiler wrappers in `tools/wrappers/`,
+- generates the Windows link inputs in `tools/sysroot/x86_64-pc-windows-msvc/`,
+- verifies the installed tools and target libraries.
 
-```powershell
-.\scripts\rust_setup.ps1 -Force
-```
+Setup is safe to run again. `.\scripts\rust_setup.ps1 -Force` also clears cached registry and package
+data first.
 
-### Customer offline installer flow
+## Quick start
 
-Customer delivery should use the offline installer generated from the staged release payload, not `rust_setup.ps1`.
-The current installer installs all three cross-compilation targets together.
-
-- installer source: `packaging/inno/rust_portable_cross.iss`
-- staging script: `scripts/prepare_offline_release.ps1`
-- customer guide: `docs/customer/README-offline.md`
-
-### 2. Activate the environment
-
-Run in every new terminal session before building:
+Activate the toolkit in each new PowerShell session, then run a build script from inside a Rust
+project. The examples assume the toolkit is at `D:\rust-portable-cross`.
 
 ```powershell
-. .\scripts\rust_env.ps1
-```
-
-This sets `CARGO_HOME`, `RUSTUP_HOME`, `ZIG_*` cache paths, and prepends the toolkit binaries to `PATH`.
-
-### 3. Cross-compile your project
-
-Change into your Rust project directory, then run the target-specific build script:
-
-```powershell
-# Build for AArch64 Linux (musl)
-cd my_project
+# 1. Activate (note the leading dot: the script must be dot-sourced)
 . D:\rust-portable-cross\scripts\rust_env.ps1
+
+# 2. Build the bundled sample for ARM64 Linux
+cd D:\rust-portable-cross\sample
 rust_build_aarch64.ps1
+
+# 3. The result is a static Linux binary
+dir target\aarch64-unknown-linux-musl\release\sample
 ```
+
+The same pattern works for the other targets:
 
 ```powershell
-# Build for ARMv7 Linux (musl)
-cd my_project
-. D:\rust-portable-cross\scripts\rust_env.ps1
-rust_build_armv7.ps1
+rust_build_armv7.ps1                                  # ARMv7 Linux
+rust_build_thumbv7em.ps1                              # Cortex-M4F / M7 firmware
+rust_build_x64_win_native.ps1 -ProjectPath .          # Windows x64
 ```
+
+Build output goes to `target/<triple>/release/` inside your project. Each build script builds in
+release mode; `rust_build_x64_win_native.ps1` also accepts `-DebugBuild`.
+
+To check that an installation is healthy, run the per-target checks from the toolkit root:
 
 ```powershell
-# Build for ARM Cortex-M4F/M7 bare metal (no_std)
-cd my_firmware_project
+.\check_tool_armv7.ps1
+.\check_tool_aarch64.ps1
+.\check_tool_thumbv7em.ps1
+.\check_tool_x64_win.ps1
+```
+
+## Using the toolkit in your own project
+
+### Through the build scripts
+
+Run the build script for your target from the project directory (the one containing `Cargo.toml`). The
+script copies `config/.cargo/config.toml` into the project's `.cargo/` directory, sets the compiler and
+linker variables for that target, and runs `cargo build --release`.
+
+### With plain `cargo`
+
+After activation, `cargo`, `rustc` and `rustup` on `PATH` are the toolkit's own, so ordinary commands
+work:
+
+```powershell
 . D:\rust-portable-cross\scripts\rust_env.ps1
-rust_build_thumbv7em.ps1
+cargo build --release --target aarch64-unknown-linux-musl
+cargo test
 ```
 
-Build outputs are placed under `target/<triple>/release/` inside your project directory.
+For the Linux targets, the project needs the linker settings from `config/.cargo/config.toml`; copy
+that file into a `.cargo` directory in your project, or let a build script do it once.
 
-> **Note:** `thumbv7em-none-eabihf` is a bare-metal `no_std` target, so a
-> firmware binary needs its own linker script. The bundled `sample_embedded`
-> crate is a complete, dependency-free example for the HEM6801E board
-> (GD32F427ZE): it ships its own `link.x`, links with `rust-lld`, and its
-> `make_image.ps1` emits a downloadable `.bin`/`.hex` (via the bundled
-> `rust-objcopy`) for the active-app slot at `0x08008000`. See
-> `sample_embedded/README.md`.
+### Crates with C or C++ code
 
----
+Crates that compile C through [`cc`](https://crates.io/crates/cc) work for all targets. Activation sets
+the per-target compiler and archiver variables (`CC_<target>`, `AR_<target>`, `RANLIB_<target>`) for
+the two Linux targets, so their C code is built by Zig.
 
-## Repository Layout
+Cargo compiles build scripts and proc-macros for the *host* even when you cross-compile. The toolkit
+links those host programs with its own Windows link inputs, so cross builds need no Visual Studio
+either.
 
-```
-rust-portable-cross/
-├── ci.ps1                      # Verification entry point / commit gate
-├── .githooks/
-│   └── pre-commit              # Runs ci.ps1; installed with ci.ps1 -InstallHook
-├── config/
-│   └── .cargo/
-│       └── config.toml        # Cargo linker config for supported targets
-├── sample/                    # Minimal sample Rust project (std)
-│   ├── Cargo.toml
-│   └── src/main.rs
-├── sample_embedded/           # Flashable no_std firmware for the HEM6801E board
-│   ├── Cargo.toml             #   (GD32F427ZE, Cortex-M4F)
-│   ├── .cargo/config.toml     # Target + linker-script flags
-│   ├── build.rs               # Puts link.x on the linker search path
-│   ├── link.x                 # Memory map (app @ 0x08008000) + vector table
-│   ├── make_image.ps1         # Build + emit downloadable .bin / .hex
-│   ├── README.md              # Board wiring, build and flashing notes
-│   └── src/
-│       ├── main.rs            # Vector table, reset, D16/D17 1 Hz blink
-│       └── lib.rs             # core-only smoke-test routines
-├── scripts/
-│   ├── rust_setup.ps1          # One-time toolchain installation
-│   ├── rust_env.ps1            # Environment activation (dot-source)
-│   ├── rust_build_aarch64.ps1  # Cross-build for aarch64-unknown-linux-musl
-│   ├── rust_build_armv7.ps1    # Cross-build for armv7-unknown-linux-musleabihf
-│   ├── rust_build_thumbv7em.ps1 # Bare-metal build for thumbv7em-none-eabihf
-│   ├── build_win_link_inputs.ps1 # Generates the Windows link inputs from bundled Zig
-│   └── prepare_offline_release.ps1 # Builds the customer offline payload
-├── test/                       # Test suites, all run by ci.ps1
-└── tools/                     # All toolchain binaries (git-ignored binaries)
-    ├── cargo-home/            # CARGO_HOME
-    ├── rustup-home/           # RUSTUP_HOME
-    ├── rustup/                # rustup launcher copy
-    ├── zig/                   # Zig compiler
-    ├── zig-global-cache/      # ZIG_GLOBAL_CACHE_DIR
-    ├── zig-local-cache/       # ZIG_LOCAL_CACHE_DIR
-    ├── wrappers/              # zig-cc wrapper .cmd files
-    ├── sysroot/               # Generated Windows link inputs (import libs + shim)
-    └── downloads/             # Downloaded installer cache
-```
+Host C code is the one place where the two ways of building differ:
 
----
+| How you build for Windows | C compiler used | Needs Visual Studio |
+|---|---|---|
+| `rust_build_x64_win_native.ps1` | bundled Zig | No |
+| plain `cargo` in an activated shell | whatever `cc` discovers on the machine | Yes, if a crate has C code |
 
-## Scripts Reference
+### Bare-metal firmware
 
-### `rust_setup.ps1`
+`thumbv7em-none-eabihf` is a `no_std` target, so a firmware project supplies its own linker script and
+startup code. `sample_embedded` is a complete, dependency-free example to start from; see
+[Sample projects](#sample-projects).
 
-```
-.\scripts\rust_setup.ps1 [-Force]
-```
+## Sample projects
 
-| Parameter | Description |
+| Directory | What it is |
 |---|---|
-| `-Force` | Clears cached Cargo registry/git data before re-running setup |
+| `sample/` | A `std` program using common crates (`tokio`, `reqwest` with rustls, `serde`, `clap`, …). Builds for the Windows, ARMv7 and ARM64 targets. Its dependencies ship with the offline installer, so it builds without network access. |
+| `sample_embedded/` | Flashable `no_std` firmware for the HEM6801E board (GD32F427ZE, Cortex-M4F): its own `link.x`, vector table and a 1 Hz LED blink. |
 
-### `rust_env.ps1`
-
-Must be **dot-sourced** so that environment variables are set in the calling session:
-
-```powershell
-. .\scripts\rust_env.ps1
-```
-
-Exports: `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `ZIG_LOCAL_CACHE_DIR`, `ZIG_GLOBAL_CACHE_DIR`, `CC_armv7_*`, `CC_aarch64_*`, `AR_armv7_*` / `RANLIB_armv7_*`, `AR_aarch64_*` / `RANLIB_aarch64_*`, and updates `PATH`.
-
-The bundled archivers are set only per target. The unsuffixed `AR` / `RANLIB` are never set: cc-rs falls back to them for every target, including the host `x86_64-pc-windows-msvc`, and the GNU-style `zig-ar` rejects the `lib.exe`-style call it makes there. Activation removes an `AR=zig-ar.cmd` / `RANLIB=zig-ranlib.cmd` left behind by an older version, and warns about any other value without changing it. Host C builds in an activated shell use cc-rs's normal compiler discovery; for a build that needs no Visual Studio, use `rust_build_x64_win_native.ps1`.
-
-### `rust_build_aarch64.ps1` / `rust_build_armv7.ps1` / `rust_build_thumbv7em.ps1`
-
-Run from inside a Rust project directory (must contain `Cargo.toml`). Copies `config/.cargo/config.toml` into the project's `.cargo/` before invoking `cargo build --release`. `rust_build_thumbv7em.ps1` builds the bare-metal `thumbv7em-none-eabihf` target with the bundled `rust-lld`; it sets up no Zig/C cross-toolchain.
-
-Cargo still compiles host build scripts and proc-macros as `x86_64-pc-windows-msvc`
-binaries even when `--target` is a cross triple. Those host links use the bundled
-Windows link inputs under `tools/sysroot/x86_64-pc-windows-msvc/lib/` and need no
-Visual Studio or Windows SDK installation.
-
-If you want to build `x86_64-pc-windows-msvc` without installing system Rust, use:
+Build a downloadable firmware image:
 
 ```powershell
-.\scripts\rust_build_x64_win_native.ps1 -ProjectPath D:\path\to\your\project
+. D:\rust-portable-cross\scripts\rust_env.ps1
+D:\rust-portable-cross\sample_embedded\make_image.ps1
 ```
 
-This helper wires `rust-lld` and a repository-local Zig C compiler wrapper for crates that use `cc-rs`.
-It needs no Visual Studio, MSVC linker or Windows SDK: the Windows import libraries it links against
-ship in `tools/sysroot/x86_64-pc-windows-msvc/lib/` and are passed ahead of any host library path, so
-the build behaves the same with or without Visual Studio installed. The produced executables run on
-Windows 10 / Server 2016 and later and need no Visual C++ redistributable.
+This builds the firmware and uses the bundled `rust-objcopy` to write `sample_embedded.bin` and
+`sample_embedded.hex` for the active-app slot at `0x08008000`. Board wiring and flashing notes are in
+`sample_embedded/README.md`.
 
-A crate whose C code requires Microsoft's own headers rather than the bundled mingw-w64 ones is the one
-remaining case that still needs a host MSVC installation; it fails in the C build script, not at link
-time. C code that calls the wide-character printf or scanf family is the one known link-time gap - see
-`build_win_link_inputs.ps1` below.
+## How it works
 
-### `build_win_link_inputs.ps1`
+**Linux targets.** Rust's musl targets need a C linker and a libc. The toolkit supplies both through
+Zig: small wrapper scripts in `tools/wrappers/` forward to `zig cc -target <zig-triple>`, and Zig builds
+musl and the compiler runtime on first use and caches them. The wrappers also drop the arguments that
+`cc` and `rustc` pass but Zig rejects.
 
-Regenerates `tools/sysroot/x86_64-pc-windows-msvc/` from the bundled Zig installation - import
-libraries built from mingw-w64 module-definition files, plus `rpc_winshim.lib` for the handful of
-symbols no Windows DLL exports. It needs no network access and no Microsoft tooling, and it runs
-automatically as part of `prepare_offline_release.ps1`.
+**Windows target without Visual Studio.** Linking an `x86_64-pc-windows-msvc` program normally needs
+Microsoft's import libraries and C runtime. The toolkit generates replacements from files that ship
+with Zig, into `tools/sysroot/x86_64-pc-windows-msvc/lib/`:
 
-`rpc_winshim.lib` covers two kinds of symbol that nothing on an MSVC link line defines.
+- import libraries for the system DLLs, built from mingw-w64 module-definition files,
+- `msvcrt.lib` as an import library for `ucrtbase.dll`, which is part of Windows 10 and later,
+- `rpc_winshim.lib`, a small shim for the symbols no Windows DLL exports: the stack probe, the
+  `printf` / `scanf` families, the program entry point and a few others.
 
-The first is the stack probe, under both names it is called by. MSVC codegen calls it `__chkstk`;
-the bundled C compiler targets the GNU ABI, so for any frame larger than one page it calls libgcc's
-`___chkstk_ms` instead. They are the same routine, and neither libgcc nor compiler-rt is on an MSVC
-link line, so both names are labels on one body in the shim.
+Linking is done by the `rust-lld` that ships with Rust. No Microsoft-licensed file is redistributed.
+The sysroot location is a stable contract: tools may test for it to decide whether an installation can
+link Windows programs.
 
-The second is formatted I/O. `ucrtbase.dll` exports the `__stdio_common_v*` primitives but not one
-member of the printf or scanf family - in Microsoft's own headers those are inline bodies that
-forward to the primitives, so they never become DLL exports, and mingw leaves the bodies to
-`libmingwex.a`. The shim carries them instead: `printf`, `fprintf`, `sprintf`, `snprintf`,
-`_snprintf`, `_scprintf`, `scanf`, `fscanf`, `sscanf` and each one's `v`-prefixed variant, each with
-the option flags its Microsoft header inline passes. The wide-character families are absent from
-`ucrtbase.dll` too and are deliberately not shimmed; add them to the symbol list if a dependency
-ever needs them.
+**Bare-metal target.** `thumbv7em-none-eabihf` links with `rust-lld` and uses no C toolchain at all.
 
-The shim also provides `mainCRTStartup`, `_fltused`, `atexit` and the TLS directory. The full set
-the generator asserts is declared in `$script:RequiredShimSymbols` and recorded in the sysroot's
-`PROVENANCE.json`; `check_tool_x64_win.ps1` verifies the shipped archive against that record.
+**Isolation.** Activation sets `CARGO_HOME`, `RUSTUP_HOME` and the Zig cache directories to paths
+inside the toolkit and puts the toolkit's programs first on `PATH`, for the current session only. Each
+build script additionally clears compiler-related environment variables it does not own, so a build
+does not pick up settings left by other tools.
 
-```powershell
-.\scripts\build_win_link_inputs.ps1 -Force
-```
+**A smaller Zig.** Zig ships headers and libc sources for every platform it can target. Setup removes
+those the toolkit never uses (macOS, glibc, WASI, other CPU architectures), about 40% of Zig's files.
+Everything the supported targets can reach is kept, including the full C++ runtime.
 
-### `check_tool_x64_win.ps1`
+## Scripts reference
 
-Verifies that an `x86_64-pc-windows-msvc` build is genuinely self-contained: it builds with the host
-Visual Studio environment scrubbed, runs the results, and fails if any library the linker resolved came
-from outside the toolkit root. `prepare_offline_release.ps1` runs it and refuses to package on failure.
+### Setup and activation
 
----
+| Script | Purpose |
+|---|---|
+| `scripts/rust_setup.ps1` | Downloads and installs the toolchain into `tools/`. Safe to repeat; `-Force` clears caches first. |
+| `scripts/rust_env.ps1` | Activates the toolkit in the current session. Must be dot-sourced. |
 
-## Download Configuration
+`rust_env.ps1` exports `RUST_PORTABLE_CROSS_ROOT`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`,
+`ZIG_LOCAL_CACHE_DIR` and `ZIG_GLOBAL_CACHE_DIR`, sets `CC_*`, `AR_*` and `RANLIB_*` for the ARMv7 and
+ARM64 targets, and updates `PATH`.
 
-The setup script supports flexible download source configuration via environment variables. The resolution order is:
+It never sets the unsuffixed `AR` or `RANLIB`: `cc` uses those for every target, including the Windows
+host, where the GNU-style archiver would fail. If an older version left `AR=zig-ar.cmd` or
+`RANLIB=zig-ranlib.cmd` behind, activation removes it; any other value is kept and a warning is shown.
 
-1. **Direct override URL** (`RUST_PORTABLE_CROSS_RUSTUP_INIT_URL` / `RUST_PORTABLE_CROSS_ZIG_URL`)
-2. **Mainland mirror list** (`RUST_PORTABLE_CROSS_RUSTUP_MIRRORS` / `RUST_PORTABLE_CROSS_ZIG_MIRRORS`)
-3. **Mirror base URL** (`RUST_PORTABLE_CROSS_RUSTUP_MIRROR_BASE` / `RUST_PORTABLE_CROSS_ZIG_MIRROR_BASE`)
-4. **Proxy prefix** (`RUST_PORTABLE_CROSS_DOWNLOAD_PROXY_PREFIX`)
-5. Official upstream (automatic fallback)
+### Build scripts
+
+| Script | Target | Parameters |
+|---|---|---|
+| `scripts/rust_build_armv7.ps1` | `armv7-unknown-linux-musleabihf` | none; run from the project directory |
+| `scripts/rust_build_aarch64.ps1` | `aarch64-unknown-linux-musl` | none; run from the project directory |
+| `scripts/rust_build_thumbv7em.ps1` | `thumbv7em-none-eabihf` | none; run from the project directory |
+| `scripts/rust_build_x64_win_native.ps1` | `x86_64-pc-windows-msvc` | `-ProjectPath` (default: the current directory), `-DebugBuild` |
+
+### Checks
+
+| Script | What it proves |
+|---|---|
+| `check_tool_armv7.ps1` | The bundled sample builds for ARMv7 Linux. |
+| `check_tool_aarch64.ps1` | The bundled sample builds for ARM64 Linux. |
+| `check_tool_thumbv7em.ps1` | The embedded sample builds, with the host Visual Studio environment removed. |
+| `check_tool_x64_win.ps1` | A Windows build is self-contained: it builds with the host Visual Studio environment removed, runs the results, and fails if the linker used any file from outside the toolkit. |
+
+### Maintenance and release
+
+| Script | Purpose |
+|---|---|
+| `scripts/build_win_link_inputs.ps1` | Regenerates the Windows link inputs from the bundled Zig (`-Force` to rebuild them all). Needs no network and no Microsoft tooling. |
+| `scripts/prepare_offline_release.ps1` | Assembles and verifies the installer payload under `dist/staging`. |
+| `build.ps1` | Builds the offline installer. See [Building a release](#building-a-release). |
+| `ci.ps1` | Runs the repository's checks. See [Development](#development). |
+
+## Download configuration
+
+`rust_setup.ps1` tries download sources in this order:
+
+1. a direct URL (`RUST_PORTABLE_CROSS_RUSTUP_INIT_URL`, `RUST_PORTABLE_CROSS_ZIG_URL`),
+2. a list of mirrors (`RUST_PORTABLE_CROSS_RUSTUP_MIRRORS`, `RUST_PORTABLE_CROSS_ZIG_MIRRORS`),
+3. a mirror base URL (`RUST_PORTABLE_CROSS_RUSTUP_MIRROR_BASE`, `RUST_PORTABLE_CROSS_ZIG_MIRROR_BASE`),
+4. a proxy prefix (`RUST_PORTABLE_CROSS_DOWNLOAD_PROXY_PREFIX`),
+5. the official upstream.
+
+Whatever the source, a download is accepted only if its SHA-256 digest matches the value recorded in
+`scripts/dependency-lock.json`.
 
 | Variable | Description |
 |---|---|
 | `RUST_PORTABLE_CROSS_RUSTUP_INIT_URL` | Direct URL for `rustup-init.exe` |
-| `RUST_PORTABLE_CROSS_ZIG_URL` | Direct URL for the Zig zip archive |
-| `RUST_PORTABLE_CROSS_RUSTUP_MIRRORS` | Semicolon/comma/newline-separated mirror URLs for rustup |
-| `RUST_PORTABLE_CROSS_ZIG_MIRRORS` | Semicolon/comma/newline-separated mirror URLs for Zig |
-| `RUST_PORTABLE_CROSS_RUSTUP_MIRROR_BASE` | Mirror base URL joined with the built-in relative path |
-| `RUST_PORTABLE_CROSS_ZIG_MIRROR_BASE` | Mirror base URL joined with the built-in relative path |
-| `RUST_PORTABLE_CROSS_DOWNLOAD_PROXY_PREFIX` | Proxy prefix prepended to the official upstream URL |
-| `RUST_PORTABLE_CROSS_WGET_PATH` | Absolute path to a `wget` executable (download backend override) |
-| `RUST_PORTABLE_CROSS_DOWNLOAD_RETRIES` | Retry count for wget/curl backends (default: 6) |
-| `RUST_PORTABLE_CROSS_CURL_IP_MODE` | Force curl IP mode: `4`, `6`, or `auto` |
+| `RUST_PORTABLE_CROSS_ZIG_URL` | Direct URL for the Zig archive |
+| `RUST_PORTABLE_CROSS_RUSTUP_MIRRORS` | Mirror URLs for rustup, separated by `;`, `,` or newlines |
+| `RUST_PORTABLE_CROSS_ZIG_MIRRORS` | Mirror URLs for Zig, separated by `;`, `,` or newlines |
+| `RUST_PORTABLE_CROSS_RUSTUP_MIRROR_BASE` | Mirror base URL, joined with the built-in relative path |
+| `RUST_PORTABLE_CROSS_ZIG_MIRROR_BASE` | Mirror base URL, joined with the built-in relative path |
+| `RUST_PORTABLE_CROSS_DOWNLOAD_PROXY_PREFIX` | Prefix placed in front of the official upstream URL |
+| `RUST_PORTABLE_CROSS_WGET_PATH` | Full path to a `wget` executable to use for downloads |
+| `RUST_PORTABLE_CROSS_DOWNLOAD_RETRIES` | Retry count for the wget and curl backends (default 6) |
+| `RUST_PORTABLE_CROSS_CURL_IP_MODE` | Force curl to IPv4 or IPv6: `4`, `6` or `auto` |
 
-By default, `RUSTUP_DIST_SERVER` is set to `https://rsproxy.cn` and `RUSTUP_UPDATE_ROOT` to `https://rsproxy.cn/rustup` to improve download reliability from mainland China. These can be overridden by setting the variables before running setup.
+Unless you set them yourself, setup points `RUSTUP_DIST_SERVER` at `https://rsproxy.cn` and
+`RUSTUP_UPDATE_ROOT` at `https://rsproxy.cn/rustup`, which is more reliable from mainland China.
 
----
+## Building a release
 
-## Running Tests and the Commit Gate
-
-`ci.ps1` is the single verification entry point. It runs the repository's checks concurrently and exits
-non-zero if any of them fails, reporting every failure in one run rather than stopping at the first.
+`build.ps1` produces the offline installer. It needs a set-up toolkit (Option B above) and
+[Inno Setup](https://jrsoftware.org/isdl.php) 6.
 
 ```powershell
-.\ci.ps1          # default lane: about 12 s, and needs no installed toolchain
-.\ci.ps1 -Full    # adds the four check_tool_*.ps1 cross builds and test/full/*.ps1 (minutes, needs tools\)
+git tag v1.6.0          # the version comes from the latest tag
+.\build.ps1
 ```
 
-`test/full/*.ps1` holds repository checks that need the installed toolchain and take minutes, such as
-`test/full/activated_host_cc.ps1`, which builds `sample` for the host from an activated shell. They run only
-under `-Full`, one at a time after the cross builds.
+| Parameter | Effect |
+|---|---|
+| `-Version` | Use the given `x.y.z` version instead of the latest git tag. |
+| `-IsccPath` | Path to `ISCC.exe` when it is not in a standard location. |
+| `-SkipStaging` | Reuse the existing staging instead of regenerating it. It is still verified. |
+| `-ValidateInstall` | Also install the built EXE into a disposable directory and run the offline smoke builds against it. Adds several minutes. |
 
-The default lane runs:
+What a build does:
+
+1. **Stage.** `prepare_offline_release.ps1` checks the toolchain, regenerates the Windows link inputs,
+   runs the self-containment check, copies the payload to `dist/staging` and writes an integrity index
+   with the SHA-256 digest of every file.
+2. **Verify.** The staged version, pinned tools, file list and digests are checked.
+3. **Compile.** Inno Setup compresses the payload into
+   `dist/installer/rust-portable-cross-offline-<version>.exe`.
+4. **Validate (only with `-ValidateInstall`).** The EXE is installed under `dist/v`, the complete
+   sample is built offline for every target, the outputs are inspected, and the install is removed.
+5. **Publish.** The EXE is copied to an `output` directory beside the repository, and split into 24 MB
+   parts with a manifest for hosting behind size-limited downloads.
+
+Run a build with `-ValidateInstall` before distributing a release whose payload changed.
+
+A release payload is about 10,000 small files. If builds are slow, exclude `dist` from on-access
+antivirus scanning; with Microsoft Defender, from an elevated PowerShell in the repository root:
+
+```powershell
+Add-MpPreference -ExclusionPath (Join-Path (Get-Location) 'dist')
+```
+
+## Development
+
+### Tests
+
+`ci.ps1` is the single verification entry point. It runs its checks concurrently, reports every failure
+in one run, and exits non-zero if any check fails.
+
+```powershell
+.\ci.ps1          # default lane: one to two minutes, needs no installed toolchain
+.\ci.ps1 -Full    # adds the four check_tool_*.ps1 builds and test/full/*.ps1; needs tools\
+```
 
 | Check | What it covers |
 |---|---|
-| `powershell-syntax` | Every tracked `.ps1` parses |
-| `test/*.tests.ps1` | Each suite under `test\`, discovered rather than listed |
-| `openspec-validate` | `openspec validate --all --strict` over the OpenSpec artifacts |
+| `powershell-syntax` | Every tracked `.ps1` file parses. |
+| `documentation-integrity` | Every toolkit path this README and the customer guide quote exists, and no tracked document contains stray control characters. |
+| `test/*.tests.ps1` | Each test suite under `test\`, discovered rather than listed. |
+| `openspec-validate` | `openspec validate --all --strict` over the specifications. |
 
-A check whose prerequisite is missing reports `SKIP` with the reason - a skip is not a pass, and the
-verdict says how many checks did not run. A suite or script reports a skip by printing `SKIP: <reason>`
-and exiting with code 3. Because the gate verifies the working tree rather than the
-staged content, it warns when tracked files have unstaged changes.
+A check whose prerequisite is missing reports `SKIP` with the reason. A skip is not a pass, and the
+verdict says how many checks did not run. A suite reports a skip by printing `SKIP: <reason>` and
+exiting with code 3.
 
-Individual suites can still be run directly:
+Run one suite directly:
 
 ```powershell
 pwsh -NoProfile -File .\test\rust_setup.tests.ps1
 ```
 
-### Hooking the gate to `git commit`
+### Commit gate
 
 ```powershell
 .\ci.ps1 -InstallHook
 ```
 
 This points the clone's `core.hooksPath` at the version-controlled `.githooks\`, so `git commit` runs
-the default lane and refuses the commit when it fails. Because the hook is version-controlled, a fix to
-it arrives with a normal `git pull` instead of needing a re-install.
-
-It is a per-clone opt-in: git configuration cannot be set by a checkout, so each developer runs it once.
-Installing again is a no-op. The installer refuses to overwrite a `core.hooksPath` it did not set, since
-that setting replaces `.git\hooks` wholesale and overwriting it would silently disable whatever hooks
-that path provides.
+the default lane and refuses the commit when it fails. It is a per-clone opt-in, installing again is a
+no-op, and the installer refuses to overwrite a `core.hooksPath` it did not set.
 
 | Bypass | Effect |
 |---|---|
-| `git commit --no-verify` | Skips the gate for one commit |
-| `$env:RUST_PORTABLE_CROSS_SKIP_CI = "1"` | Skips the gate for scripted or automated commits |
-| `git config --unset core.hooksPath` | Uninstalls the gate from this clone |
+| `git commit --no-verify` | Skips the gate for one commit. |
+| `$env:RUST_PORTABLE_CROSS_SKIP_CI = "1"` | Skips the gate for scripted commits. |
+| `git config --unset core.hooksPath` | Uninstalls the gate from this clone. |
 
-The gate also skips itself while a merge or rebase is in progress, so it never stands between you and a
-conflict resolution. Every skip says so on its own line rather than reporting a pass.
+The gate checks the working tree, not the staged content, and warns when the two differ. It skips
+itself during a merge or rebase. Every skip is stated on its own line and never reported as a pass.
 
+### Specifications
 
----
+Behaviour the project commits to is written down under `openspec/specs/`, one directory per
+capability, and changes are proposed and archived under `openspec/changes/`. A change that alters
+behaviour updates the matching specification in the same commit.
 
-## Sample Project
+## Repository layout
 
-A minimal project is provided in `sample/` to verify the cross-compilation pipeline:
+```
+rust-portable-cross/
+├── build.ps1                     # Builds the offline installer
+├── ci.ps1                        # Verification entry point and commit gate
+├── check_tool_*.ps1              # Per-target health checks
+├── .githooks/pre-commit          # Runs ci.ps1; installed with ci.ps1 -InstallHook
+├── config/.cargo/config.toml     # Cargo linker settings for the Linux targets
+├── docs/
+│   └── customer/README-offline.md  # Guide shipped with the installer
+├── openspec/                     # Specifications and change records
+├── packaging/inno/               # Inno Setup installer script
+├── sample/                       # std sample project
+├── sample_embedded/              # no_std firmware sample (HEM6801E)
+├── scripts/
+│   ├── rust_setup.ps1            # One-time toolchain installation
+│   ├── rust_env.ps1              # Activation (dot-source)
+│   ├── rust_build_*.ps1          # Per-target build scripts
+│   ├── build_win_link_inputs.ps1 # Generates the Windows link inputs
+│   ├── prepare_offline_release.ps1  # Assembles the installer payload
+│   ├── finalize_offline_install.ps1 # Runs at the end of installation
+│   ├── dependency-lock.json      # Pinned versions and download digests
+│   └── ...                       # Shared helpers
+├── test/                         # Test suites run by ci.ps1
+│   └── full/                     # Slow checks that need the toolchain
+├── tools/                        # Installed toolchain (generated, not tracked)
+│   ├── cargo-home/               # CARGO_HOME
+│   ├── rustup-home/              # RUSTUP_HOME
+│   ├── zig/                      # Zig compiler
+│   ├── wrappers/                 # Zig compiler and archiver wrappers
+│   ├── sysroot/                  # Generated Windows link inputs
+│   └── downloads/                # Download cache
+└── dist/                         # Build output (generated, not tracked)
+```
+
+## Troubleshooting
+
+**A build script or `cargo` is "not recognized".**
+The session is not activated. Dot-source `scripts/rust_env.ps1` from the toolkit directory, including
+the leading dot and space. Running the script without the dot changes nothing in your session.
+
+**"Missing Windows link inputs" or `could not open 'kernel32.lib'`.**
+The generated link inputs are missing or incomplete. Regenerate them:
 
 ```powershell
-. .\scripts\rust_env.ps1
-cd sample
-..\scripts\rust_build_aarch64.ps1
+.\scripts\build_win_link_inputs.ps1 -Force
 ```
+
+**`ar: error: unknown option n` while building a crate with C code.**
+An unsuffixed `AR` variable is pointing at a GNU-style archiver during a Windows host build. Activate
+again with a current version of the toolkit, which removes the value older versions set. If you set
+`AR` yourself, unset it or use `AR_<target>` instead.
+
+**A C header such as `afx.h` or an ATL header is not found on the Windows target.**
+The crate's C code needs Microsoft's own headers. The bundled compiler provides the mingw-w64 headers,
+which cover the Windows API but not MFC, ATL or other Visual Studio libraries. That crate needs a real
+MSVC installation.
+
+**Undefined `wprintf`, `swprintf` or another wide-character formatted-I/O function at link time.**
+The shim provides the narrow-character `printf` and `scanf` families only. Add the missing functions to
+the symbol list in `scripts/build_win_link_inputs.ps1` and regenerate.
+
+**The firmware build fails at link time for `thumbv7em-none-eabihf`.**
+A bare-metal program needs a linker script that describes the chip's memory. Start from
+`sample_embedded/link.x` and `sample_embedded/build.rs`.
+
+**The first build for a target is slow.**
+Zig compiles the C library and compiler runtime for that target on first use, then caches them under
+`tools/zig-global-cache/`. Later builds reuse the cache.
+
+**Builds or the installer are slow on a machine with antivirus software.**
+On-access scanning of thousands of small files dominates. Excluding the toolkit directory, or `dist`
+when building releases, removes most of the delay.
+
+**The toolkit directory was moved.**
+Activate from the new location. Paths are derived from where the scripts are, not stored.
+
+## Known limitations
+
+- Windows x86-64 is the only supported host.
+- The Rust and Zig versions are pinned; changing them means updating `scripts/dependency-lock.json`
+  and re-verifying the release.
+- Linux targets are musl only. glibc targets are not supported.
+- C code for the Windows target is compiled against mingw-w64 headers, so code that depends on
+  Microsoft-only headers needs a host MSVC installation.
+- `pthread.h` is not available for C code on the Windows target.
+- Wide-character `printf` / `scanf` functions are not provided for C code on the Windows target.
+- Plain `cargo` in an activated shell uses the machine's own C compiler for *host* C code; only
+  `rust_build_x64_win_native.ps1` builds host C code without Visual Studio.
+
+## Contributing
+
+Issues and pull requests are welcome at
+<https://gitee.com/yoursmengle/rust-portable-cross>.
+
+Before sending a change:
+
+1. Run `.\ci.ps1`, and `.\ci.ps1 -Full` if the change touches the toolchain, the build scripts or the
+   payload.
+2. Add or update a test under `test/` for any behaviour you change.
+3. Update the matching specification under `openspec/specs/` when behaviour changes.
+4. Update this README, `README.zh-CN.md` and `docs/customer/README-offline.md` when users would notice
+   the change. The documentation check fails if this README or the customer guide names a path that
+   does not exist.
+
+Installing the commit gate (`.\ci.ps1 -InstallHook`) runs the default lane on every commit.
+
+## License
+
+rust-portable-cross is licensed under the GNU Affero General Public License, version 3. See
+[`LICENSE`](LICENSE).
+
+The toolkit downloads and redistributes third-party software under their own licenses, including
+[Rust](https://www.rust-lang.org/) (MIT / Apache-2.0), [Zig](https://ziglang.org/) (MIT) with its
+bundled musl, mingw-w64, LLVM libc++ and libunwind sources, and the crates used by the sample project.
+The generated Windows link inputs record the source and license of every file in a `PROVENANCE.json`
+beside them, and the installer ships a manifest of the sample's dependencies and their licenses.
