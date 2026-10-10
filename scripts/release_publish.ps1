@@ -113,42 +113,84 @@ function Invoke-SplitPublication {
         $previous = $null
         if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
             $previous = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-            if ($previous.version -eq $Version) {
-                if ($previous.originalHash -ne $originalHash -or
-                    [long]$previous.originalSize -ne [long]$originalSize -or
-                    $previous.originalFileName -ne $fileName) {
-                    throw "Version $Version is already published with different installer bytes."
-                }
+            if ($previous.version -eq $Version -and
+                $previous.originalHash -eq $originalHash -and
+                [long]$previous.originalSize -eq [long]$originalSize -and
+                $previous.originalFileName -eq $fileName) {
+                # The same installer again: nothing to change, but prove what is there.
                 Assert-PublishedParts -Root $webDownloadDir -Manifest $previous
                 if ((Get-PartsRecombinedHash -Root $webDownloadDir -Names @($previous.partFileNames)) -ne $originalHash) {
                     throw 'Existing same-version parts do not reconstruct the installer SHA-256.'
                 }
                 return $webDownloadDir
             }
-        }
-        for ($i = 0; $i -lt $partNames.Count; $i++) {
-            $name = $partNames[$i]
-            $destination = Resolve-ManagedRelativePath -Root $webDownloadDir -RelativePath $name
-            $privatePart = Resolve-ManagedRelativePath -Root $privateRoot -RelativePath $name
-            if (Test-Path -LiteralPath $destination) {
-                if ((Get-Item -LiteralPath $destination).Length -ne $partSizes[$i] -or
-                    -not [string]::Equals((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash,
-                        $partHashes[$i], [StringComparison]::OrdinalIgnoreCase)) {
-                    throw "Published part name already has different bytes: $name"
-                }
+            if ($previous.version -eq $Version) {
+                # A rebuild never reproduces the same bytes (timestamps, regenerated
+                # link inputs), so building a version twice has to be able to replace it.
+                Write-Warning "Version $Version was already published with a different installer; replacing it."
             }
-            else { Move-Item -LiteralPath $privatePart -Destination $destination }
         }
-        Assert-PublishedParts -Root $webDownloadDir -Manifest ([pscustomobject]$manifest)
-        if ((Get-PartsRecombinedHash -Root $webDownloadDir -Names $partNames.ToArray()) -ne $originalHash) {
-            throw 'Published parts do not reconstruct the installer SHA-256.'
+
+        # Part names carry the installer file name, so a part already at one of these
+        # names belongs to an earlier build of this same version. Each one is set
+        # aside before the new part moves in, and every step is recorded so a failure
+        # puts the previous parts - and with them the previous manifest's promise -
+        # back exactly as they were.
+        $replacedRoot = Join-Path $privateRoot 'replaced'
+        New-Item -ItemType Directory -Path $replacedRoot -Force | Out-Null
+        $undo = New-Object 'System.Collections.Generic.Stack[object]'
+        try {
+            $stale = @(Get-ChildItem -LiteralPath $webDownloadDir -File -Filter "$fileName.part*" |
+                Where-Object { $_.Name -match '\.part\d+$' -and $partNames -notcontains $_.Name })
+            foreach ($file in $stale) {
+                # A longer earlier build left parts this one does not have.
+                $backup = Join-Path $replacedRoot $file.Name
+                [IO.File]::Move($file.FullName, $backup)
+                $undo.Push(@{ From = $backup; To = $file.FullName })
+            }
+            for ($i = 0; $i -lt $partNames.Count; $i++) {
+                $name = $partNames[$i]
+                $destination = Resolve-ManagedRelativePath -Root $webDownloadDir -RelativePath $name
+                $privatePart = Resolve-ManagedRelativePath -Root $privateRoot -RelativePath $name
+                if (Test-Path -LiteralPath $destination -PathType Leaf) {
+                    if ((Get-Item -LiteralPath $destination).Length -eq $partSizes[$i] -and
+                        [string]::Equals((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash,
+                            $partHashes[$i], [StringComparison]::OrdinalIgnoreCase)) {
+                        continue
+                    }
+                    $backup = Join-Path $replacedRoot $name
+                    [IO.File]::Move($destination, $backup)
+                    $undo.Push(@{ From = $backup; To = $destination })
+                }
+                [IO.File]::Move($privatePart, $destination)
+                $undo.Push(@{ Remove = $destination })
+            }
+            Assert-PublishedParts -Root $webDownloadDir -Manifest ([pscustomobject]$manifest)
+            if ((Get-PartsRecombinedHash -Root $webDownloadDir -Names $partNames.ToArray()) -ne $originalHash) {
+                throw 'Published parts do not reconstruct the installer SHA-256.'
+            }
+            $privateManifest = Join-Path $privateRoot 'manifest.json'
+            $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $privateManifest -Encoding UTF8
+            if (Test-Path -LiteralPath $manifestPath) {
+                [IO.File]::Replace($privateManifest, $manifestPath, (Join-Path $privateRoot 'previous-manifest.json'))
+            }
+            else { Move-Item -LiteralPath $privateManifest -Destination $manifestPath }
         }
-        $privateManifest = Join-Path $privateRoot 'manifest.json'
-        $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $privateManifest -Encoding UTF8
-        if (Test-Path -LiteralPath $manifestPath) {
-            [IO.File]::Replace($privateManifest, $manifestPath, (Join-Path $privateRoot 'previous-manifest.json'))
+        catch {
+            # The manifest is replaced last, so reaching here means it still names the
+            # previous set. Undo in reverse so that set is whole again.
+            while ($undo.Count -gt 0) {
+                $step = $undo.Pop()
+                try {
+                    if ($step.ContainsKey('Remove')) {
+                        if (Test-Path -LiteralPath $step.Remove) { [IO.File]::Delete($step.Remove) }
+                    }
+                    else { [IO.File]::Move($step.From, $step.To) }
+                }
+                catch { Write-Warning "Could not restore a previously published part: $($_.Exception.Message)" }
+            }
+            throw
         }
-        else { Move-Item -LiteralPath $privateManifest -Destination $manifestPath }
         return $webDownloadDir
     }
     finally {

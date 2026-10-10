@@ -15,17 +15,33 @@ The publisher SHALL write parts privately, validate their sizes and digests and 
 - **THEN** the prior public manifest and every part it references remain unchanged
 
 #### Scenario: New version succeeds
-- **WHEN** all parts match the installer and no version conflict exists
+- **WHEN** all parts match the installer
 - **THEN** the existing manifest filename is atomically replaced to refer to the complete new set
 
-### Requirement: Published part names are immutable
+### Requirement: A published version can be rebuilt and replaced
 
-The publisher SHALL reject a same-version installer whose bytes differ from the already published installer and SHALL not overwrite any part still referenced by a published manifest. Repeating an identical publication SHALL be safe.
+The publisher SHALL accept a same-version installer whose bytes differ from the published one, replace that version's parts and manifest, and say that it did so. A rebuild does not reproduce the same bytes, so refusing it would make a version buildable only once. Repeating an identical publication SHALL change nothing.
 
-#### Scenario: Same-version conflict
+#### Scenario: Same version rebuilt
 - **WHEN** a second installer has the same version and different bytes
-- **THEN** publication fails and the prior manifest and parts remain usable
+- **THEN** its parts and manifest replace the published ones, and the publisher reports the replacement
+
+#### Scenario: Rebuild has fewer parts
+- **WHEN** the rebuilt installer splits into fewer parts than the published one
+- **THEN** the parts the rebuild no longer has are removed from the published set
 
 #### Scenario: Identical retry
 - **WHEN** the same installer is published again
-- **THEN** the publisher accepts it without changing referenced part bytes
+- **THEN** the publisher accepts it without changing the manifest or any part
+
+### Requirement: A failed replacement restores the previous publication
+
+Replacing published parts SHALL be reversible until the manifest is replaced, which SHALL happen last. If any step fails, the publisher SHALL restore every part it set aside, so the previous manifest and the parts it names are usable again. The publisher SHALL NOT modify parts that belong to another version.
+
+#### Scenario: Replacement fails midway
+- **WHEN** verification fails after some parts have been replaced
+- **THEN** the previous manifest is unchanged and every part it names has its previous bytes
+
+#### Scenario: Other versions are untouched
+- **WHEN** a version is published or replaced
+- **THEN** the parts of every other version remain as they were
