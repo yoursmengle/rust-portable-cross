@@ -14,6 +14,7 @@ if (-not (Test-Path -LiteralPath $rustTargetPayloadScript -PathType Leaf)) {
 }
 . $rustTargetPayloadScript
 . (Join-Path $script:RustToolkitScriptRoot 'rust_transaction.ps1')
+. (Join-Path $script:RustToolkitScriptRoot 'rust_zig_payload.ps1')
 
 # Download override knobs:
 # - RUST_PORTABLE_CROSS_RUSTUP_INIT_URL / RUST_PORTABLE_CROSS_ZIG_URL: highest-priority direct download URL
@@ -833,6 +834,7 @@ function Invoke-RustToolkitSetup {
             (@(Get-NativeOutput -FilePath $candidateZigExe -Arguments @('version')))[0].ToString().Trim() -ne $zigVersion) {
             throw 'Extracted Zig does not match the dependency lock.'
         }
+        $null = Remove-UnusedZigPayload -ZigRoot $candidateZigRoot
         Promote-ManagedDirectory -ManagedRoot $toolsRoot -ActivePath $zigRoot -CandidatePath $candidateZigRoot
         }
         finally {
@@ -846,6 +848,8 @@ function Invoke-RustToolkitSetup {
     }
     else {
         Write-Step "Using existing Zig $zigVersion in $zigRoot"
+        # An installation made before the unused platforms were pruned still carries them.
+        $null = Remove-UnusedZigPayload -ZigRoot $zigRoot
     }
     if (-not (Test-LockedDownload -Path $zigExe -ExpectedSha256 $dependencyLock.zigArchive.executableSha256)) {
         throw 'Managed zig.exe does not match the dependency lock.'

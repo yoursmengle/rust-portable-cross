@@ -3,7 +3,10 @@ param(
     [string]$Version,
     [string]$IsccPath,
     [switch]$SkipStaging,
-    [switch]$SkipInstallValidation
+    # Also install the compiled EXE into a disposable directory and run the offline
+    # smoke builds against it. Off by default: it takes longer than the rest of the
+    # build put together.
+    [switch]$ValidateInstall
 )
 
 Set-StrictMode -Version Latest
@@ -70,17 +73,16 @@ function Invoke-StagedBuildValidation {
     param([string]$StagingRoot, [string]$Version)
 
     # Staging is checked read-only here. Whether the payload installs and builds is
-    # proven once, on the compiled EXE, by Invoke-InstallerBuildValidation: a second
-    # run on a copy of staging doubled the slowest part of the build.
+    # proven on the compiled EXE, by Invoke-InstallerBuildValidation, on request.
     Write-Step 'Verifying staged release payload'
     $null = Assert-StagedRelease -StagingRoot $StagingRoot -Version $Version
 }
 
 function Invoke-InstallerBuildValidation {
-    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [string]$InstallParent, [switch]$SkipInstallValidation)
+    param([string]$InstallerPath, [string]$Version, [string]$WorkRoot, [string]$InstallParent, [switch]$ValidateInstall)
 
-    if ($SkipInstallValidation) {
-        Write-Step 'Skipping disposable installer install/uninstall validation'
+    if (-not $ValidateInstall) {
+        Write-Step 'Not installing or validating the compiled EXE (pass -ValidateInstall to do so)'
         return
     }
     Write-Step 'Installing and verifying the compiled EXE in a disposable location'
@@ -207,7 +209,7 @@ if ((Test-Path Variable:LASTEXITCODE) -and $LASTEXITCODE -ne 0) {
 $ExpectedExe = Join-Path $InstallerDir "rust-portable-cross-offline-$Version.exe"
 $null = Assert-InstallerOutput -InstallerPath $ExpectedExe
 
-Invoke-InstallerBuildValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot -InstallParent $ValidationInstallParent -SkipInstallValidation:$SkipInstallValidation
+Invoke-InstallerBuildValidation -InstallerPath $ExpectedExe -Version $Version -WorkRoot $ValidationRoot -InstallParent $ValidationInstallParent -ValidateInstall:$ValidateInstall
 
 $CopiedExe = Copy-BuiltInstallerArtifact -InstallerPath $ExpectedExe -RepoPath $RepoRoot
 Write-Step "Installer built successfully:"

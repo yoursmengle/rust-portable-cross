@@ -32,7 +32,7 @@
       { "name": "Version", "type": "string", "default": null, "validateSet": [] },
       { "name": "IsccPath", "type": "string", "default": null, "validateSet": [] },
       { "name": "SkipStaging", "type": "switch", "default": null, "validateSet": [] },
-      { "name": "SkipInstallValidation", "type": "switch", "default": null, "validateSet": [] }
+      { "name": "ValidateInstall", "type": "switch", "default": null, "validateSet": [] }
     ],
     "ci.ps1": [
       { "name": "Full", "type": "switch", "default": null, "validateSet": [] },

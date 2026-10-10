@@ -107,10 +107,10 @@ try {
         if (Get-Command -Name $removed -ErrorAction SilentlyContinue) { throw "$removed must not come back: it duplicates the installed-EXE validation." }
     }
 
-    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -InstallParent 'X:\v' -SkipInstallValidation
-    if ($script:installerChecks -ne 0) { throw 'Fast build mode must skip disposable installer install/uninstall validation.' }
     Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -InstallParent 'X:\v'
-    if ($script:installerChecks -ne 1) { throw 'Default build mode must run disposable installer validation.' }
+    if ($script:installerChecks -ne 0) { throw 'The default build must only produce the EXE, without installing or validating it.' }
+    Invoke-InstallerBuildValidation -InstallerPath 'installer.exe' -Version '1.2.3' -WorkRoot $work -InstallParent 'X:\v' -ValidateInstall
+    if ($script:installerChecks -ne 1) { throw '-ValidateInstall must run disposable installer validation.' }
     if ($script:installParent -ne 'X:\v') { throw 'The build must pass its short install parent to installer validation.' }
     'release_validation tests passed.'
 }

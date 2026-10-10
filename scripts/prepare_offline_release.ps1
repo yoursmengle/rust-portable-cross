@@ -18,6 +18,7 @@ if (-not (Test-Path -LiteralPath $script:RustTargetPayloadScriptPath -PathType L
 . $script:RustTargetPayloadScriptPath
 . (Join-Path $script:OfflineReleaseScriptRoot 'rust_payload_integrity.ps1')
 . (Join-Path $script:OfflineReleaseScriptRoot 'rust_transaction.ps1')
+. (Join-Path $script:OfflineReleaseScriptRoot 'rust_zig_payload.ps1')
 $script:HostToolchain = "1.98.0-x86_64-pc-windows-msvc"
 $script:HostTriple = "x86_64-pc-windows-msvc"
 $script:ProductName = "Rust Portable Cross"
@@ -660,6 +661,12 @@ function Invoke-PrepareOfflineRelease {
     }
 
     Ensure-TargetRustStdPayloads -Paths $paths
+    # Prune the toolkit's own Zig, not just the staged copy, so that what ships is
+    # exactly what the local builds and checks ran against.
+    $prunedZigDirectories = Remove-UnusedZigPayload -ZigRoot (Join-Path $paths.ToolkitRoot 'tools\zig')
+    if ($prunedZigDirectories -gt 0) {
+        Write-Step "Removed $prunedZigDirectories Zig directories for platforms the toolkit does not target"
+    }
     Ensure-WindowsLinkInputs -Paths $paths
     Assert-WindowsSelfContainment -Paths $paths
 
