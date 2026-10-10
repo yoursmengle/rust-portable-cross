@@ -7,6 +7,19 @@ $ErrorActionPreference = 'Stop'
 
 function Assert-True { param([bool]$Condition, [string]$Message) if (-not $Condition) { throw $Message } }
 
+# Release a real Windows file lock from a background thread, without needing a
+# PowerShell runspace on that thread.
+Add-Type -TypeDefinition @'
+public static class TransactionTestLock {
+    public static System.Threading.Tasks.Task ReleaseAfter(System.IO.FileStream handle, int milliseconds) {
+        return System.Threading.Tasks.Task.Run(() => {
+            System.Threading.Thread.Sleep(milliseconds);
+            handle.Dispose();
+        });
+    }
+}
+'@
+
 $base = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $root = Join-Path $base ('rpc-transaction-' + [guid]::NewGuid().ToString('N'))
 try {
@@ -32,12 +45,49 @@ try {
     Assert-True ((Get-Content -LiteralPath (Join-Path $active 'marker.txt') -Raw).Trim() -eq 'new') 'Occupied-directory failure changed active state.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $root 'staging.previous\marker.txt') -Raw).Trim() -eq 'old') 'Occupied-directory failure lost recovery state.'
 
+    # A briefly occupied candidate must be promoted once its lock clears, without
+    # discarding the active or recovery directory. This is the Zig setup failure.
+    $handle = [IO.File]::Open((Join-Path $occupied 'marker.txt'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $blocked = $false
+    try { [IO.Directory]::Move($occupied, ($occupied + '.probe')) }
+    catch { $blocked = $true }
+    Assert-True $blocked 'Candidate lock did not block the initial rename.'
+    $release = [TransactionTestLock]::ReleaseAfter($handle, 900)
+    try { Promote-ManagedDirectory -ManagedRoot $root -ActivePath $active -CandidatePath $occupied }
+    finally { $release.GetAwaiter().GetResult(); $handle.Dispose() }
+    Assert-True ((Get-Content -LiteralPath (Join-Path $active 'marker.txt') -Raw).Trim() -eq 'newer') 'Temporarily occupied candidate was not promoted.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $root 'staging.previous\marker.txt') -Raw).Trim() -eq 'new') 'Promotion after a temporary lock lost the previous active state.'
+    Assert-True (-not (Test-Path -LiteralPath $occupied)) 'Successful promotion left its candidate directory behind.'
+
+    # A persistent candidate lock fails after the bounded retries and restores
+    # both the active directory and the recovery directory set aside earlier.
+    $lockedCandidate = Join-Path $root 'staging.next.locked'
+    New-Item -ItemType Directory -Path $lockedCandidate -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $lockedCandidate 'marker.txt') -Value 'locked' -Encoding ASCII
+    $handle = [IO.File]::Open((Join-Path $lockedCandidate 'marker.txt'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $failed = $false
+    try { Promote-ManagedDirectory -ManagedRoot $root -ActivePath $active -CandidatePath $lockedCandidate }
+    catch { $failed = $true }
+    finally { $handle.Dispose() }
+    Assert-True $failed 'Persistently occupied candidate unexpectedly switched.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $active 'marker.txt') -Raw).Trim() -eq 'newer') 'Candidate-lock failure did not restore the active directory.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $root 'staging.previous\marker.txt') -Raw).Trim() -eq 'new') 'Candidate-lock failure lost the recovery directory.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $lockedCandidate 'marker.txt') -Raw).Trim() -eq 'locked') 'Candidate-lock failure changed the candidate.'
+    Assert-True (@(Get-ChildItem -LiteralPath $root -Directory -Filter '*.retired.*').Count -eq 0) 'Candidate-lock failure left a retired recovery directory.'
+
     $interrupted = Join-Path $root 'interrupted'
     New-Item -ItemType Directory -Path $interrupted -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $interrupted 'marker.txt') -Value 'recoverable' -Encoding ASCII
     [IO.Directory]::Move($interrupted, ($interrupted + '.previous'))
     Restore-PreviousManagedDirectory -ManagedRoot $root -ActivePath $interrupted
     Assert-True ((Get-Content -LiteralPath (Join-Path $interrupted 'marker.txt') -Raw).Trim() -eq 'recoverable') 'Interrupted promotion did not recover prior state.'
+
+    [IO.Directory]::Move($interrupted, ($interrupted + '.previous'))
+    $handle = [IO.File]::Open((Join-Path ($interrupted + '.previous') 'marker.txt'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $release = [TransactionTestLock]::ReleaseAfter($handle, 900)
+    try { Restore-PreviousManagedDirectory -ManagedRoot $root -ActivePath $interrupted }
+    finally { $release.GetAwaiter().GetResult(); $handle.Dispose() }
+    Assert-True ((Get-Content -LiteralPath (Join-Path $interrupted 'marker.txt') -Raw).Trim() -eq 'recoverable') 'Recovery did not wait for a temporary lock.'
 
     $keyA = Get-ToolkitOperationKey -Root $root -Scope toolkit
     $keyA2 = Get-ToolkitOperationKey -Root ($root.ToUpperInvariant() + '\') -Scope toolkit

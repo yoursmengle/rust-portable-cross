@@ -297,6 +297,11 @@ C 运行时。工具链用 Zig 自带的文件生成替代品，放在 `tools/sy
 `build.ps1` 用来生成离线安装包。它需要一套已搭建好的工具链（上面的方式 B）和
 [Inno Setup](https://jrsoftware.org/isdl.php) 6。
 
+准备 staging 前，脚本会用 `cargo fetch --locked --offline` 检查自带的 Cargo 缓存。缺少依赖时，
+它会使用自带的工具链，把锁文件中的全部依赖下载到 `tools/cargo-home`。首次补齐缓存需要联网；
+缓存完整且 `sample/Cargo.lock` 未变化时，后续构建可以离线运行。直接运行
+`prepare_offline_release.ps1` 仍会检查离线依赖，缓存不完整时会报错。
+
 ```powershell
 git tag v1.6.0          # 版本号取自最新的标签
 .\build.ps1

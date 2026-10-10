@@ -314,6 +314,12 @@ Unless you set them yourself, setup points `RUSTUP_DIST_SERVER` at `https://rspr
 `build.ps1` produces the offline installer. It needs a set-up toolkit (Option B above) and
 [Inno Setup](https://jrsoftware.org/isdl.php) 6.
 
+Before staging, it checks the bundled Cargo cache with `cargo fetch --locked --offline`. If
+dependencies are missing, it fetches the full lockfile into `tools/cargo-home` using the bundled
+toolchain. This first fetch needs network access; subsequent builds can run offline while the cache
+is complete and `sample/Cargo.lock` is unchanged. Direct `prepare_offline_release.ps1` runs retain
+their offline dependency check and fail if the cache is incomplete.
+
 ```powershell
 git tag v1.6.0          # the version comes from the latest tag
 .\build.ps1

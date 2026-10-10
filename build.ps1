@@ -25,6 +25,65 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+function Initialize-ReleaseSampleCache {
+    param([Parameter(Mandatory = $true)][string]$ToolkitRoot)
+
+    $cargoHome = Join-Path $ToolkitRoot 'tools\cargo-home'
+    $cargoExe = Join-Path $cargoHome 'bin\cargo.exe'
+    if (-not (Test-Path -LiteralPath $cargoExe -PathType Leaf)) {
+        throw "Bundled Cargo not found: $cargoExe. Run scripts\rust_setup.ps1 first."
+    }
+
+    $toolkitLock = Enter-ToolkitOperation -Root $ToolkitRoot -Scope toolkit -Operation 'fetch-release-sample'
+    $snapshot = @{}
+    try {
+        $environment = @{
+            CARGO_HOME = $cargoHome
+            RUSTUP_HOME = Join-Path $ToolkitRoot 'tools\rustup-home'
+            RUSTUP_TOOLCHAIN = '1.98.0-x86_64-pc-windows-msvc'
+            CARGO_NET_OFFLINE = 'true'
+            CARGO_BUILD_TARGET = $null
+        }
+        foreach ($name in $environment.Keys) {
+            $snapshot[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+            if ($null -eq $environment[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+            else {
+                [Environment]::SetEnvironmentVariable($name, $environment[$name], 'Process')
+            }
+        }
+
+        # Builds fetch only their target's dependencies, but release metadata and
+        # the archive allowlist cover the entire lockfile, including other platforms.
+        $fetchArguments = @('fetch', '--locked', '--manifest-path', (Join-Path $ToolkitRoot 'sample\Cargo.toml'),
+                            '--config', 'build.target=[]')
+        Write-Step 'Checking locked sample dependencies in the bundled Cargo cache'
+        # Windows PowerShell treats native stderr as error records. Capture Cargo
+        # diagnostics and check the exit code so an expected cache miss can retry.
+        $probeText = @(& { $ErrorActionPreference = 'Continue'; & $cargoExe @fetchArguments --offline 2>&1 })
+        if ($LASTEXITCODE -eq 0) { return }
+
+        Write-Step 'Fetching missing locked sample dependencies into the bundled Cargo cache'
+        $env:CARGO_NET_OFFLINE = 'false'
+        $fetchText = @(& { $ErrorActionPreference = 'Continue'; & $cargoExe @fetchArguments --config net.offline=false 2>&1 })
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to fetch locked sample dependencies into ${cargoHome}: $($fetchText -join ' ')"
+        }
+    }
+    finally {
+        foreach ($name in $snapshot.Keys) {
+            if ($null -eq $snapshot[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+            else {
+                [Environment]::SetEnvironmentVariable($name, $snapshot[$name], 'Process')
+            }
+        }
+        Exit-ToolkitOperation -Handle $toolkitLock
+    }
+}
+
 function Split-FileAndPublish {
     param(
         [string]$InstallerPath,
@@ -173,6 +232,7 @@ if (-not (Test-Path -LiteralPath $IssFile)) {
 }
 
 if (-not $SkipStaging) {
+    Initialize-ReleaseSampleCache -ToolkitRoot $RepoRoot
     Write-Step "Preparing offline release staging"
     $global:LASTEXITCODE = 0
     & $PrepareScript -Version $Version

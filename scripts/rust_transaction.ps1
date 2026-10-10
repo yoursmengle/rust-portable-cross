@@ -108,12 +108,38 @@ function Remove-TransactionDirectory {
     Remove-ManagedTree -Path $full
 }
 
+function Move-TransactionDirectory {
+    param([string]$ManagedRoot, [string]$SourcePath, [string]$DestinationPath)
+
+    $source = Assert-TransactionChildPath -ManagedRoot $ManagedRoot -Path $SourcePath
+    $destination = Assert-TransactionChildPath -ManagedRoot $ManagedRoot -Path $DestinationPath
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [IO.Directory]::Move($source, $destination)
+            return
+        }
+        catch {
+            # Windows can briefly retain a lock after validation runs an executable
+            # or a scanner opens its files. PowerShell wraps the native exception.
+            $exception = $_.Exception.GetBaseException()
+            $nativeError = $exception.HResult -band 0xFFFF
+            if ($attempt -ge 10 -or
+                ($exception -isnot [IO.IOException] -and $exception -isnot [UnauthorizedAccessException]) -or
+                $nativeError -notin @(5, 32, 33)) {
+                throw
+            }
+            Write-Verbose "Waiting for directory lock before moving '$source' to '$destination' (attempt $attempt of 10)."
+            Start-Sleep -Milliseconds 300
+        }
+    }
+}
+
 function Restore-PreviousManagedDirectory {
     param([string]$ManagedRoot, [string]$ActivePath)
     $active = Assert-TransactionChildPath -ManagedRoot $ManagedRoot -Path $ActivePath
     $previous = Assert-TransactionChildPath -ManagedRoot $ManagedRoot -Path ($active + '.previous')
     if (-not (Test-Path -LiteralPath $active) -and (Test-Path -LiteralPath $previous)) {
-        [IO.Directory]::Move($previous, $active)
+        Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $previous -DestinationPath $active
     }
 }
 
@@ -131,21 +157,21 @@ function Promote-ManagedDirectory {
     $movedActive = $false
     try {
         if (Test-Path -LiteralPath $previous) {
-            [IO.Directory]::Move($previous, $retired)
+            Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $previous -DestinationPath $retired
             $retiredOldPrevious = $true
         }
         if (Test-Path -LiteralPath $active) {
-            [IO.Directory]::Move($active, $previous)
+            Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $active -DestinationPath $previous
             $movedActive = $true
         }
-        [IO.Directory]::Move($candidate, $active)
+        Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $candidate -DestinationPath $active
     }
     catch {
         if ($movedActive -and -not (Test-Path -LiteralPath $active) -and (Test-Path -LiteralPath $previous)) {
-            [IO.Directory]::Move($previous, $active)
+            Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $previous -DestinationPath $active
         }
         if ($retiredOldPrevious -and -not (Test-Path -LiteralPath $previous) -and (Test-Path -LiteralPath $retired)) {
-            [IO.Directory]::Move($retired, $previous)
+            Move-TransactionDirectory -ManagedRoot $ManagedRoot -SourcePath $retired -DestinationPath $previous
         }
         throw
     }
