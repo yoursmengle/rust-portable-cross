@@ -5,23 +5,13 @@ Guarantees that building for `x86_64-pc-windows-msvc` with this toolkit requires
 toolkit itself ships, by supplying the Windows import libraries and C-runtime shim that the bundled
 `rust-lld` needs as link inputs.
 ## Requirements
+
 ### Requirement: Toolkit supplies its own Windows link inputs
 
 The toolkit SHALL ship a Windows link-input sysroot for `x86_64-pc-windows-msvc` under its own root.
 The sysroot SHALL provide, at minimum, import libraries for every library `rustc` names for a default
 `std` binary — `kernel32`, `ntdll`, `userenv`, `ws2_32`, `dbghelp`, `advapi32`, `user32`, `ole32`,
 `oleaut32`, `shell32`, `bcrypt` — and a C-runtime library satisfying `/defaultlib:msvcrt`.
-
-The sysroot SHALL additionally supply every symbol the bundled C compiler emits a call to that
-neither the C-runtime import library nor Rust's own compiler builtins define. Two classes fall under
-this:
-
-- Compiler-runtime symbols emitted implicitly by codegen. Because the bundled C compiler targets the
-  GNU ABI while the final link runs in MSVC mode, this set SHALL include the stack probe under both
-  the MSVC spelling and the MinGW spelling.
-- C-runtime functions that the platform C runtime provides only as header inlines and therefore does
-  not export from any DLL. This set SHALL include the narrow-character formatted input and output
-  families, and each supplied function SHALL behave as the platform's own header inline does.
 
 #### Scenario: Sysroot present after installation
 
@@ -30,12 +20,38 @@ this:
 - **AND** it contains an import library file for each of the libraries named above
 - **AND** it contains a library that resolves the default CRT reference emitted for the MSVC target
 
+#### Scenario: Sysroot is missing
+
+- **WHEN** a build for `x86_64-pc-windows-msvc` starts and the sysroot is absent or incomplete
+- **THEN** the build SHALL fail before invoking `cargo`
+- **AND** the error SHALL name the missing sysroot path and the command that regenerates it
+- **AND** the error SHALL NOT instruct the user to install Visual Studio, the MSVC linker, `link.exe`,
+  or the Windows SDK
+
+### Requirement: Sysroot supplies compiler-runtime symbols
+
+The sysroot SHALL additionally supply every symbol the bundled C compiler emits a call to that
+neither the C-runtime import library nor Rust's own compiler builtins define. The first class of such symbols is:
+
+Compiler-runtime symbols emitted implicitly by codegen. Because the bundled C compiler targets the
+GNU ABI while the final link runs in MSVC mode, this set SHALL include the stack probe under both
+the MSVC spelling and the MinGW spelling.
+
 #### Scenario: C code with a stack frame larger than one page
 
 - **WHEN** a crate's build script compiles a C translation unit containing a function whose stack
   frame exceeds one page, and the resulting object is linked into an `x86_64-pc-windows-msvc` binary
 - **THEN** the link SHALL succeed using only the bundled link inputs
 - **AND** the produced executable SHALL run that function without corrupting the stack
+
+### Requirement: Sysroot supplies header-inline C-runtime functions
+
+The sysroot SHALL also supply the second class of symbols the bundled C compiler emits a call
+to that neither the C-runtime import library nor Rust's own compiler builtins define:
+
+C-runtime functions that the platform C runtime provides only as header inlines and therefore does
+not export from any DLL. This set SHALL include the narrow-character formatted input and output
+families, and each supplied function SHALL behave as the platform's own header inline does.
 
 #### Scenario: C code calling formatted input or output
 
@@ -44,14 +60,6 @@ this:
 - **THEN** the link SHALL succeed using only the bundled link inputs
 - **AND** the produced executable SHALL format and parse to the same results the platform C runtime
   produces, including the return value and null termination that each function is specified to give
-
-#### Scenario: Sysroot is missing
-
-- **WHEN** a build for `x86_64-pc-windows-msvc` starts and the sysroot is absent or incomplete
-- **THEN** the build SHALL fail before invoking `cargo`
-- **AND** the error SHALL name the missing sysroot path and the command that regenerates it
-- **AND** the error SHALL NOT instruct the user to install Visual Studio, the MSVC linker, `link.exe`,
-  or the Windows SDK
 
 ### Requirement: Link inputs are regenerated offline from bundled assets
 
@@ -78,14 +86,19 @@ The location and shape of the Windows link-input sysroot SHALL be a stated exter
 implementation detail. Integrating tools SHALL be able to determine whether an installation can link
 for `x86_64-pc-windows-msvc` by inspecting that location alone, without invoking a build.
 
+#### Scenario: Documentation and packaging agree with the contract
+
+- **WHEN** the documented sysroot path, the path the build scripts add to the linker search, and the
+  paths listed in the install layout manifest are compared
+- **THEN** all three SHALL name the same location
+- **AND** that location SHALL be the contracted path
+
+### Requirement: The sysroot contract fixes a flat layout with a manifest
+
 The contract SHALL be: the sysroot for a target lives at `tools/sysroot/<target-triple>/` beneath the
 toolkit root, its import libraries and runtime shim live directly in that directory's `lib/`
 subdirectory as a flat set of `.lib` files, and a machine-readable manifest sits alongside `lib/`
 naming every file the sysroot ships together with the source and licence it derives from.
-
-The toolkit SHALL NOT relocate this path, nest the libraries more deeply, or split them across
-subdirectories without treating the move as a breaking change to the contract. The toolkit SHALL NOT
-publish the sysroot under a second path as a compatibility alias.
 
 #### Scenario: A downstream tool probes an installation for readiness
 
@@ -95,12 +108,11 @@ publish the sysroot under a second path as a compatibility alias.
 - **AND** the presence of those files SHALL be sufficient to conclude that the installation can link
   for the target without a Visual Studio or Windows SDK installation
 
-#### Scenario: Documentation and packaging agree with the contract
+### Requirement: The sysroot is not relocated or aliased
 
-- **WHEN** the documented sysroot path, the path the build scripts add to the linker search, and the
-  paths listed in the install layout manifest are compared
-- **THEN** all three SHALL name the same location
-- **AND** that location SHALL be the contracted path
+The toolkit SHALL NOT relocate this path, nest the libraries more deeply, or split them across
+subdirectories without treating the move as a breaking change to the contract. The toolkit SHALL NOT
+publish the sysroot under a second path as a compatibility alias.
 
 #### Scenario: No compatibility alias is shipped
 
@@ -113,21 +125,27 @@ publish the sysroot under a second path as a compatibility alias.
 The toolkit SHALL carry a written record of how it satisfies the Windows link inputs and why the
 alternatives were declined, so the decision is auditable and does not have to be re-derived.
 
+The record SHALL also state the limitation the chosen route retains: a crate whose C code requires
+Microsoft's own headers still needs a host MSVC installation, and this surfaces as a compile error
+naming a missing header, not as a link error.
+
+#### Scenario: A reader asks what the chosen route cannot do
+
+- **WHEN** a reader consults the record for the reasoning behind the current approach
+- **THEN** the record SHALL state the retained limitation and how that limitation presents itself
+
+### Requirement: The record names each declined alternative
+
 The record SHALL state that the link inputs are generated from assets bundled with the toolkit; that
 obtaining Microsoft's own CRT and SDK libraries on the user's machine was declined because it
 requires network access and licence acceptance on machines the product exists to serve offline; and
 that switching the delivered target to the GNU ABI was declined because it changes the ABI of the
 delivered artefact and reverses a prior deliberate migration.
 
-The record SHALL also state the limitation the chosen route retains: a crate whose C code requires
-Microsoft's own headers still needs a host MSVC installation, and this surfaces as a compile error
-naming a missing header, not as a link error.
-
 #### Scenario: An integrator asks why a given route was not taken
 
 - **WHEN** a reader consults the record for the reasoning behind the current approach
 - **THEN** the record SHALL name each declined alternative and the reason it was declined
-- **AND** it SHALL state the retained limitation and how that limitation presents itself
 
 ### Requirement: Regeneration verifies the shim's required symbols
 
@@ -190,8 +208,7 @@ Whenever a toolkit build script invokes cargo for a non-Windows target (`thumbv7
 `armv7-unknown-linux-musleabihf`, or `aarch64-unknown-linux-musl`), any host
 `x86_64-pc-windows-msvc` artifact that cargo still has to link — a build script, a proc-macro, or
 any other host binary — SHALL be linked with the same bundled Windows link-input sysroot used for
-an `x86_64-pc-windows-msvc` target build. The host link SHALL NOT depend on a host Visual Studio
-installation, a host Windows SDK installation, or ambient `LIB` / `INCLUDE` values.
+an `x86_64-pc-windows-msvc` target build.
 
 #### Scenario: thumbv7em sample with a host build script on a machine without Visual Studio
 
@@ -199,6 +216,18 @@ installation, a host Windows SDK installation, or ambient `LIB` / `INCLUDE` valu
   build script on a machine with no Visual Studio and no Windows SDK
 - **THEN** the host build-script executable SHALL link successfully
 - **AND** the `thumbv7em-none-eabihf` firmware build SHALL complete
+
+#### Scenario: Host link failure names missing libraries, not a missing linker
+
+- **WHEN** a cross-target toolkit build reaches the host link and the Windows import libraries are
+  not on the linker search path
+- **THEN** the failure SHALL be attributable to missing link inputs such as `kernel32.lib`
+- **AND** the failure SHALL NOT instruct the user to install a different linker
+
+### Requirement: Cross-target host links do not depend on host tooling
+
+The host link of a cross-target build SHALL NOT depend on a host Visual Studio
+installation, a host Windows SDK installation, or ambient `LIB` / `INCLUDE` values.
 
 #### Scenario: Host toolchain present during a cross-target build
 
@@ -215,13 +244,6 @@ installation, a host Windows SDK installation, or ambient `LIB` / `INCLUDE` valu
 - **AND** the error SHALL name the missing sysroot path and the command that regenerates it
 - **AND** the error SHALL NOT instruct the user to install Visual Studio, the MSVC linker,
   `link.exe`, or the Windows SDK
-
-#### Scenario: Host link failure names missing libraries, not a missing linker
-
-- **WHEN** a cross-target toolkit build reaches the host link and the Windows import libraries are
-  not on the linker search path
-- **THEN** the failure SHALL be attributable to missing link inputs such as `kernel32.lib`
-- **AND** the failure SHALL NOT instruct the user to install a different linker
 
 ### Requirement: Offline packaging ships the link inputs
 
@@ -248,9 +270,6 @@ accurately, and SHALL NOT claim host independence that the shipped package does 
 Documentation for the cross targets SHALL also state that host build scripts and proc-macros are
 linked with the bundled Windows link inputs and need no Visual Studio or Windows SDK installation.
 
-Every toolkit path the documentation quotes SHALL resolve, so that a reader who follows a documented
-path finds what the documentation says is there.
-
 #### Scenario: Offline README describes x64 host requirements
 
 - **WHEN** a reader consults the offline documentation for the `x86_64-pc-windows-msvc` target
@@ -267,9 +286,13 @@ path finds what the documentation says is there.
 - **AND** it SHALL state that those host links use the bundled Windows link inputs and need no
   Visual Studio or Windows SDK installation
 
+### Requirement: Documented paths lead the reader to real files
+
+Every toolkit path the documentation quotes SHALL resolve, so that a reader who follows a documented
+path finds what the documentation says is there.
+
 #### Scenario: Reader follows a documented path
 
 - **WHEN** a reader follows any toolkit path the offline documentation quotes — the sysroot
   directory, a build script, or the link-input regeneration command
 - **THEN** the path SHALL name a file or directory the installation actually contains
-

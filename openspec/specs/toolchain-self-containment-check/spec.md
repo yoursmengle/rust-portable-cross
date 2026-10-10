@@ -5,30 +5,18 @@ Turns "this is a portable toolchain with no external dependencies" from a docume
 checkable property, by providing a check that fails whenever a build consumes a file from outside the
 toolkit root.
 ## Requirements
+
 ### Requirement: Self-containment check for the Windows host target
 
 The toolkit SHALL provide a check that builds the bundled sample for `x86_64-pc-windows-msvc` under a
 scrubbed environment and reports whether the build was self-contained. The check SHALL run the
 resulting executable and SHALL fail if the executable does not run successfully.
 
-The build the check performs SHALL exercise the bundled C compiler on a translation unit whose stack
-frame exceeds one page, so that the compiler-runtime symbols emitted for large frames are genuinely
-demanded by the link the check verifies. The check SHALL additionally assert that the shipped
-compiler-runtime shim defines each symbol on the declared required-symbol set, so that a shim
-regenerated without one fails the check rather than waiting for a downstream project to discover it.
-
 #### Scenario: Self-contained build passes
 
 - **WHEN** the check runs against a correctly provisioned toolkit
 - **THEN** the build SHALL succeed, the produced executable SHALL run, and the check SHALL report
   success
-
-#### Scenario: Shim is missing a required compiler-runtime symbol
-
-- **WHEN** the check runs against a toolkit whose compiler-runtime shim does not define one of the
-  declared required symbols
-- **THEN** the check SHALL fail
-- **AND** the failure message SHALL name the missing symbol and the command that regenerates the shim
 
 #### Scenario: Build leaks a host dependency
 
@@ -43,6 +31,21 @@ regenerated without one fails the check rather than waiting for a downstream pro
 - **WHEN** the check runs in a shell where host MSVC and Windows SDK environment variables are set
 - **THEN** the check SHALL remove them for the duration of the build
 - **AND** the check SHALL restore the caller's environment before returning, including on failure
+
+### Requirement: Self-containment check demands the compiler-runtime shim symbols
+
+The build the check performs SHALL exercise the bundled C compiler on a translation unit whose stack
+frame exceeds one page, so that the compiler-runtime symbols emitted for large frames are genuinely
+demanded by the link the check verifies. The check SHALL additionally assert that the shipped
+compiler-runtime shim defines each symbol on the declared required-symbol set, so that a shim
+regenerated without one fails the check rather than waiting for a downstream project to discover it.
+
+#### Scenario: Shim is missing a required compiler-runtime symbol
+
+- **WHEN** the check runs against a toolkit whose compiler-runtime shim does not define one of the
+  declared required symbols
+- **THEN** the check SHALL fail
+- **AND** the failure message SHALL name the missing symbol and the command that regenerates the shim
 
 ### Requirement: Cross-target checks succeed without a host Visual Studio install
 
@@ -115,4 +118,3 @@ omits a required Rust standard-library component is never published.
   Windows SDK, and no network access
 - **THEN** installing the package and running the self-containment and target payload checks SHALL
   succeed without network access
-

@@ -3,6 +3,7 @@
 ## Purpose
 Gives the repository one command that decides whether its current state is fit to commit, and attaches that decision to `git commit` so verification stops depending on who remembered to run it.
 ## Requirements
+
 ### Requirement: Single verification entry point
 
 The repository SHALL provide one command that runs its verification checks and reports a single pass/fail verdict. The command SHALL exit with status 0 when every check it ran passed and non-zero when any check failed. It SHALL report each check individually, naming the check and its outcome, so a failure identifies what to fix without re-running anything.
@@ -26,12 +27,7 @@ A check that fails SHALL NOT stop the remaining checks from running. A developer
 
 ### Requirement: Fast lane runs without an installed toolchain
 
-The verification command SHALL have a default lane that requires no installed cross-compilation toolchain, so it succeeds in a freshly cloned repository where `tools/` has not been populated. The default lane SHALL cover, at minimum:
-
-- that every PowerShell script tracked in the repository parses,
-- that every toolkit path quoted in tracked documentation resolves, and that tracked documentation carries no disallowed control characters,
-- that every test suite under `test/` passes,
-- that OpenSpec artifacts for active changes validate.
+The verification command SHALL have a default lane that requires no installed cross-compilation toolchain, so it succeeds in a freshly cloned repository where `tools/` has not been populated.
 
 Checks in the default lane that genuinely require an absent toolchain SHALL report themselves as skipped, naming what was missing. A skip SHALL NOT be reported as a pass and SHALL NOT fail the run.
 
@@ -39,6 +35,15 @@ Checks in the default lane that genuinely require an absent toolchain SHALL repo
 
 - **WHEN** the default lane runs in a clone where `tools/` contains no downloaded toolchain
 - **THEN** it completes with status 0, and any check that needed the toolchain is reported as skipped with the reason
+
+### Requirement: Fast lane covers scripts, documentation, tests and specs
+
+The default lane SHALL cover, at minimum:
+
+- that every PowerShell script tracked in the repository parses,
+- that every toolkit path quoted in tracked documentation resolves, and that tracked documentation carries no disallowed control characters,
+- that every test suite under `test/` passes,
+- that OpenSpec artifacts for active changes validate.
 
 #### Scenario: A script does not parse
 
@@ -75,8 +80,6 @@ When the opt-in lane is requested but the toolchain it needs is absent, the comm
 
 The repository SHALL provide a version-controlled `git` pre-commit hook that runs the verification command's default lane and blocks the commit when it fails. The hook SHALL be usable on a Windows developer machine where `git` executes hooks through a POSIX shell, and SHALL locate PowerShell itself rather than assuming a particular one is on `PATH`.
 
-Installing the hook SHALL be an explicit, single command, because a checkout cannot configure git on its own. The installer SHALL be idempotent, and SHALL refuse to overwrite an existing hook configuration that it did not install, reporting what it found instead.
-
 #### Scenario: Commit blocked by a failing gate
 
 - **WHEN** a developer with the hook installed runs `git commit` while a check fails
@@ -86,6 +89,10 @@ Installing the hook SHALL be an explicit, single command, because a checkout can
 
 - **WHEN** a developer with the hook installed runs `git commit` while every check passes
 - **THEN** the commit proceeds
+
+### Requirement: Hook installation is explicit and safe
+
+Installing the hook SHALL be an explicit, single command, because a checkout cannot configure git on its own. The installer SHALL be idempotent, and SHALL refuse to overwrite an existing hook configuration that it did not install, reporting what it found instead.
 
 #### Scenario: Installing over a foreign hook configuration
 
@@ -101,14 +108,16 @@ Installing the hook SHALL be an explicit, single command, because a checkout can
 
 The gate SHALL be bypassable, because a gate that cannot be bypassed gets uninstalled. `git commit --no-verify` SHALL bypass it, and an environment variable SHALL bypass it for scripted or automated commits.
 
-The gate SHALL skip itself while a merge or rebase is in progress, so it cannot block conflict resolution.
-
 Whenever the gate skips or is bypassed through the environment variable, it SHALL say so on its output. A bypassed run SHALL NOT print anything that could be mistaken for a passing verification.
 
 #### Scenario: Bypass via the environment variable
 
 - **WHEN** a commit is made with the bypass environment variable set
 - **THEN** the commit proceeds, and the output states that verification was skipped rather than reporting a pass
+
+### Requirement: The gate skips itself during a merge or rebase
+
+The gate SHALL skip itself while a merge or rebase is in progress, so it cannot block conflict resolution.
 
 #### Scenario: Committing during a merge
 
