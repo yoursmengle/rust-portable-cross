@@ -67,7 +67,7 @@ foreach ($a in $args) {
     $normalizedArg = $arg.Trim('"')
     if ($normalizedArg.StartsWith('--target=')) { continue }
     if ($normalizedArg -eq '-target' -or $normalizedArg -eq '--target') { $skipNext = $true; continue }
-    if ($normalizedArg.StartsWith('@') -and (Test-Path -LiteralPath $normalizedArg.Substring(1) -PathType Leaf)) {
+    if ($normalizedArg.StartsWith('@') -and [System.IO.File]::Exists($normalizedArg.Substring(1))) {
         $rewrittenResponse = Convert-ResponseFile -Path $normalizedArg.Substring(1)
         if ($null -ne $rewrittenResponse) { $filtered.Add('@' + $rewrittenResponse); continue }
         $filtered.Add($arg)

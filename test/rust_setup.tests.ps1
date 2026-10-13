@@ -178,32 +178,107 @@ Assert-True -Condition ($setupScriptBody -notmatch [regex]::Escape(("x86_64-" + 
 
 Assert-True -Condition ($setupScriptBody -match [regex]::Escape("'--fix-cortex-a53-'")) -Message "setup should strip the Cortex-A53 erratum linker flag that zig cc rejects."
 Assert-True -Condition ($setupScriptBody -match 'Convert-ResponseFile') -Message "setup should filter linker args inside rustc @response files, not just argv."
+# A build can run the wrappers in a PowerShell process that has no drive for the
+# volume holding the response file. Provider cmdlets then report the file missing
+# and the filtering is skipped, so the wrappers must ask the file system directly.
+$responseFileTestLine = 'if ($normalizedArg.StartsWith(''@'') -and [System.IO.File]::Exists($normalizedArg.Substring(1))) {'
+Assert-True -Condition ($setupScriptBody.Contains($responseFileTestLine.Replace('$', '`$'))) -Message "setup should generate wrappers that detect a response file without a PowerShell provider cmdlet."
+$crossWrapperPaths = @(
+    (Join-Path $PSScriptRoot "..\tools\wrappers\aarch64-linux-musl-gcc.ps1"),
+    (Join-Path $PSScriptRoot "..\tools\wrappers\arm-linux-musleabihf-gcc.ps1")
+)
+foreach ($crossWrapperPath in $crossWrapperPaths) {
+    $crossWrapperName = Split-Path -Leaf $crossWrapperPath
+    $crossWrapperBody = Get-Content -LiteralPath $crossWrapperPath -Raw -Encoding UTF8
+    Assert-True -Condition ($crossWrapperBody.Contains($responseFileTestLine)) -Message "$crossWrapperName should carry the response file test that setup generates."
+    Assert-True -Condition ($crossWrapperBody -notmatch 'Test-Path') -Message "$crossWrapperName should not depend on PowerShell drives to find a response file."
+}
+
 Assert-True -Condition ($setupScriptBody -match 'New-WrapperCmdBody') -Message "setup should build every .cmd shim from a single definition."
 Assert-True -Condition ($setupScriptBody -match [regex]::Escape('for %%I in (pwsh.exe) do set')) -Message "generated .cmd shims should prefer PowerShell 7 when it is available."
 Assert-True -Condition ($setupScriptBody -match 'component\s+remove') -Message "setup should remove stale host rust-std metadata before repairing it."
 Assert-True -Condition ($setupScriptBody -match 'target\s+remove') -Message "setup should remove stale target metadata before repairing it."
 
 # rustc spills the link command line into an @response file, so a wrapper that only
-# filters argv silently does nothing. Exercise the shipped wrapper end to end.
-$aarch64Wrapper = Join-Path $PSScriptRoot "..\tools\wrappers\aarch64-linux-musl-gcc.ps1"
+# filters argv silently does nothing. Exercise the shipped wrappers end to end.
+#
+# The wrapper writes its filtered copy before it starts zig, so cases whose lines
+# name objects that do not exist are judged on that copy, not on zig's exit code.
+function Invoke-WrapperWithArgument {
+    param(
+        [Parameter(Mandatory = $true)][string]$WrapperPath,
+        [Parameter(Mandatory = $true)][string]$Argument
+    )
+
+    # zig reports failures on stderr, which must not abort the test run.
+    $ErrorActionPreference = "Continue"
+    $output = & $WrapperPath $Argument 2>&1 | Out-String
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+}
+
 $zigExeForWrapper = Join-Path $PSScriptRoot "..\tools\zig\zig.exe"
-if ((Test-Path -LiteralPath $aarch64Wrapper -PathType Leaf) -and (Test-Path -LiteralPath $zigExeForWrapper -PathType Leaf)) {
+if (Test-Path -LiteralPath $zigExeForWrapper -PathType Leaf) {
     $wrapperTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rpc-wrapper-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $wrapperTempRoot -Force | Out-Null
     $previousZigLocalCache = $env:ZIG_LOCAL_CACHE_DIR
     $previousZigGlobalCache = $env:ZIG_GLOBAL_CACHE_DIR
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     try {
         $env:ZIG_LOCAL_CACHE_DIR = (Resolve-Path (Join-Path $PSScriptRoot "..\tools")).Path + "\zig-local-cache"
         $env:ZIG_GLOBAL_CACHE_DIR = (Resolve-Path (Join-Path $PSScriptRoot "..\tools")).Path + "\zig-global-cache"
 
-        $responsePath = Join-Path $wrapperTempRoot "linker-arguments"
-        [System.IO.File]::WriteAllText($responsePath, "-Wl,--fix-cortex-a53-843419`n--version")
+        foreach ($crossWrapperPath in $crossWrapperPaths) {
+            $crossWrapperName = Split-Path -Leaf $crossWrapperPath
+            $caseRoot = Join-Path $wrapperTempRoot $crossWrapperName
+            New-Item -ItemType Directory -Path $caseRoot -Force | Out-Null
 
-        $wrapperOutput = & $aarch64Wrapper "@$responsePath" 2>&1 | Out-String
-        Assert-Equal -Actual $LASTEXITCODE -Expected 0 -Message "aarch64 wrapper should succeed despite the Cortex-A53 erratum flag.`n$wrapperOutput"
-        Assert-True -Condition ($wrapperOutput -notmatch 'unsupported linker arg') -Message "aarch64 wrapper should strip linker args zig cc rejects.`n$wrapperOutput"
-        Assert-True -Condition (Test-Path -LiteralPath "$responsePath.zig-cc" -PathType Leaf) -Message "aarch64 wrapper should rewrite the response file it was handed."
-        Assert-Equal -Actual ([System.IO.File]::ReadAllText("$responsePath.zig-cc")) -Expected "--version" -Message "rewritten response file should keep every argument zig cc accepts."
+            $responsePath = Join-Path $caseRoot "linker-arguments"
+            [System.IO.File]::WriteAllText($responsePath, "-Wl,--fix-cortex-a53-843419`n--version")
+            $result = Invoke-WrapperWithArgument -WrapperPath $crossWrapperPath -Argument "@$responsePath"
+            Assert-Equal -Actual $result.ExitCode -Expected 0 -Message "$crossWrapperName should succeed despite the Cortex-A53 erratum flag.`n$($result.Output)"
+            Assert-True -Condition ($result.Output -notmatch 'unsupported linker arg') -Message "$crossWrapperName should strip linker args zig cc rejects.`n$($result.Output)"
+            Assert-True -Condition (Test-Path -LiteralPath "$responsePath.zig-cc" -PathType Leaf) -Message "$crossWrapperName should rewrite the response file it was handed."
+            Assert-Equal -Actual ([System.IO.File]::ReadAllText("$responsePath.zig-cc")) -Expected "--version" -Message "rewritten response file should keep every argument zig cc accepts."
+
+            # A consumer may rewrite the response file before the wrapper sees it, so
+            # both rustc's escaping and the consumer's quoting have to pass through
+            # untouched: decoding either one here would decode it twice.
+            $rustcEscapedLine = 'C:\\dir\\sp\ ace\\a.o'
+            $consumerQuotedLine = '"C:\dir\sp ace\' + [char]0x00E9 + '\a.o"'
+            $formatPath = Join-Path $caseRoot "format-arguments"
+            $formatInput = @(
+                '-Wl,--fix-cortex-a53-843419',
+                $rustcEscapedLine,
+                $consumerQuotedLine,
+                '-Wl,--as-needed,--fix-cortex-a53-843419,-z,now'
+            ) -join "`n"
+            [System.IO.File]::WriteAllText($formatPath, $formatInput, $utf8NoBom)
+            $null = Invoke-WrapperWithArgument -WrapperPath $crossWrapperPath -Argument "@$formatPath"
+            Assert-True -Condition (Test-Path -LiteralPath "$formatPath.zig-cc" -PathType Leaf) -Message "$crossWrapperName should write its filtered copy beside the original response file."
+            $expectedFormatOutput = @($rustcEscapedLine, $consumerQuotedLine, '-Wl,--as-needed,-z,now') -join "`n"
+            Assert-Equal `
+                -Actual ([Convert]::ToBase64String([System.IO.File]::ReadAllBytes("$formatPath.zig-cc"))) `
+                -Expected ([Convert]::ToBase64String($utf8NoBom.GetBytes($expectedFormatOutput))) `
+                -Message "$crossWrapperName should forward kept lines byte for byte, as UTF-8 without a byte order mark and with LF line endings."
+            Assert-Equal `
+                -Actual ([Convert]::ToBase64String([System.IO.File]::ReadAllBytes($formatPath))) `
+                -Expected ([Convert]::ToBase64String($utf8NoBom.GetBytes($formatInput))) `
+                -Message "$crossWrapperName should leave the original response file unmodified."
+
+            $cleanPath = Join-Path $caseRoot "clean-arguments"
+            [System.IO.File]::WriteAllText($cleanPath, "--version")
+            $result = Invoke-WrapperWithArgument -WrapperPath $crossWrapperPath -Argument "@$cleanPath"
+            Assert-Equal -Actual $result.ExitCode -Expected 0 -Message "$crossWrapperName should pass an unfiltered response file straight through.`n$($result.Output)"
+            Assert-True -Condition (-not (Test-Path -LiteralPath "$cleanPath.zig-cc")) -Message "$crossWrapperName should not copy a response file it did not change."
+
+            # An @ argument that is not a file is not the wrapper's to interpret: zig
+            # receives it as given and is the one to reject it.
+            foreach ($notAFile in @((Join-Path $caseRoot "missing-arguments"), $caseRoot)) {
+                $result = Invoke-WrapperWithArgument -WrapperPath $crossWrapperPath -Argument "@$notAFile"
+                Assert-True -Condition ($result.Output -match 'unable to read response file') -Message "$crossWrapperName should forward an @ argument that is not a file unchanged.`n$($result.Output)"
+                Assert-True -Condition (-not (Test-Path -LiteralPath "$notAFile.zig-cc")) -Message "$crossWrapperName should not rewrite an @ argument that is not a file."
+            }
+        }
     }
     finally {
         $env:ZIG_LOCAL_CACHE_DIR = $previousZigLocalCache
@@ -212,7 +287,7 @@ if ((Test-Path -LiteralPath $aarch64Wrapper -PathType Leaf) -and (Test-Path -Lit
     }
 }
 else {
-    Write-Host "Skipping aarch64 wrapper behaviour test: the toolkit wrapper or zig.exe is not installed."
+    Write-Host "Skipping cross wrapper behaviour tests: zig.exe is not installed."
 }
 
 Write-Host "rust_setup tests passed."
